@@ -29,6 +29,18 @@ import {
   type DiscogsSearchResponse,
   type DiscogsSearchResult,
 } from "./schemas.js";
+import {
+  collectionAddResponseSchema,
+  collectionFoldersResponseSchema,
+  collectionItemsResponseSchema,
+  collectionValueSchema,
+  wantlistItemSchema,
+  wantlistResponseSchema,
+  type DiscogsCollectionFolder,
+  type DiscogsCollectionItem,
+  type DiscogsCollectionValue,
+  type DiscogsWantlistItem,
+} from "./user-schemas.js";
 
 export interface DiscogsClientOptions {
   baseUrl?: string;
@@ -42,6 +54,24 @@ export interface DiscogsClientOptions {
 export interface PaginationParameters {
   page?: number;
   per_page?: number;
+}
+
+export interface CollectionListParameters extends PaginationParameters {
+  sort?:
+    | "label"
+    | "artist"
+    | "title"
+    | "catno"
+    | "format"
+    | "rating"
+    | "added"
+    | "year";
+  sort_order?: "asc" | "desc";
+}
+
+export interface UserItemUpdate {
+  notes?: string;
+  rating?: number;
 }
 
 export interface SearchParameters {
@@ -196,6 +226,175 @@ export class DiscogsClient {
     );
   }
 
+  async getCollectionFolders(
+    username: string,
+  ): Promise<DiscogsCollectionFolder[]> {
+    const response = await this.#getParsed(
+      new URL(`${this.#userPath(username)}/collection/folders`, this.#baseUrl),
+      collectionFoldersResponseSchema,
+      "collection folders",
+    );
+    return response.folders;
+  }
+
+  async getCollectionItems(
+    username: string,
+    folderId: number,
+    parameters: CollectionListParameters = {},
+  ): Promise<DiscogsCollectionItem[]> {
+    const response = await this.#getParsed(
+      this.#parametersUrl(
+        `${this.#userPath(username)}/collection/folders/${String(folderId)}/releases`,
+        parameters,
+      ),
+      collectionItemsResponseSchema,
+      "collection items",
+    );
+    return response.releases;
+  }
+
+  getCollectionItemsAll(
+    username: string,
+    folderId: number,
+    parameters: Omit<CollectionListParameters, "page"> = {},
+  ): AsyncGenerator<DiscogsCollectionItem> {
+    return this.#iteratePages(
+      this.#parametersUrl(
+        `${this.#userPath(username)}/collection/folders/${String(folderId)}/releases`,
+        parameters,
+      ),
+      collectionItemsResponseSchema,
+      "collection items",
+      (response) => response.releases,
+    );
+  }
+
+  async getCollectionItemsByRelease(
+    username: string,
+    releaseId: number,
+  ): Promise<DiscogsCollectionItem[]> {
+    const response = await this.#getParsed(
+      new URL(
+        `${this.#userPath(username)}/collection/releases/${String(releaseId)}`,
+        this.#baseUrl,
+      ),
+      collectionItemsResponseSchema,
+      "collection release instances",
+    );
+    return response.releases;
+  }
+
+  async addToCollection(
+    username: string,
+    folderId: number,
+    releaseId: number,
+  ): Promise<{ instance_id: number; resource_url: string }> {
+    return await this.#requestParsed(
+      new URL(
+        `${this.#userPath(username)}/collection/folders/${String(folderId)}/releases/${String(releaseId)}`,
+        this.#baseUrl,
+      ),
+      { method: "POST" },
+      collectionAddResponseSchema,
+      "a collection mutation",
+    );
+  }
+
+  async updateCollectionInstance(
+    username: string,
+    folderId: number,
+    releaseId: number,
+    instanceId: number,
+    update: { folder_id?: number; rating?: number },
+  ): Promise<void> {
+    await this.#requestParsed(
+      new URL(
+        `${this.#userPath(username)}/collection/folders/${String(folderId)}/releases/${String(releaseId)}/instances/${String(instanceId)}`,
+        this.#baseUrl,
+      ),
+      this.#jsonRequest("POST", update),
+      z.undefined(),
+      "a collection update",
+    );
+  }
+
+  async removeCollectionInstance(
+    username: string,
+    folderId: number,
+    releaseId: number,
+    instanceId: number,
+  ): Promise<void> {
+    await this.#requestParsed(
+      new URL(
+        `${this.#userPath(username)}/collection/folders/${String(folderId)}/releases/${String(releaseId)}/instances/${String(instanceId)}`,
+        this.#baseUrl,
+      ),
+      { method: "DELETE" },
+      z.undefined(),
+      "a collection deletion",
+    );
+  }
+
+  async getCollectionValue(username: string): Promise<DiscogsCollectionValue> {
+    return await this.#getParsed(
+      new URL(`${this.#userPath(username)}/collection/value`, this.#baseUrl),
+      collectionValueSchema,
+      "a collection value",
+    );
+  }
+
+  async getWantlist(
+    username: string,
+    parameters: PaginationParameters = {},
+  ): Promise<DiscogsWantlistItem[]> {
+    const response = await this.#getParsed(
+      this.#resourceListUrl(`${this.#userPath(username)}/wants`, parameters),
+      wantlistResponseSchema,
+      "wantlist items",
+    );
+    return response.wants;
+  }
+
+  getWantlistAll(
+    username: string,
+    parameters: Omit<PaginationParameters, "page"> = {},
+  ): AsyncGenerator<DiscogsWantlistItem> {
+    return this.#iteratePages(
+      this.#resourceListUrl(`${this.#userPath(username)}/wants`, parameters),
+      wantlistResponseSchema,
+      "wantlist items",
+      (response) => response.wants,
+    );
+  }
+
+  async addToWantlist(
+    username: string,
+    releaseId: number,
+    update: UserItemUpdate,
+  ): Promise<DiscogsWantlistItem> {
+    return await this.#mutateWantlist("PUT", username, releaseId, update);
+  }
+
+  async updateWantlistItem(
+    username: string,
+    releaseId: number,
+    update: UserItemUpdate,
+  ): Promise<DiscogsWantlistItem> {
+    return await this.#mutateWantlist("POST", username, releaseId, update);
+  }
+
+  async removeWantlistItem(username: string, releaseId: number): Promise<void> {
+    await this.#requestParsed(
+      new URL(
+        `${this.#userPath(username)}/wants/${String(releaseId)}`,
+        this.#baseUrl,
+      ),
+      { method: "DELETE" },
+      z.undefined(),
+      "a wantlist deletion",
+    );
+  }
+
   async search(parameters: SearchParameters): Promise<DiscogsSearchResponse> {
     const url = this.#searchUrl(parameters);
     return await this.#getParsed(url, searchResponseSchema, "search results");
@@ -221,6 +420,20 @@ export class DiscogsClient {
     schema: z.ZodType<T>,
     description: string,
   ): Promise<T> {
+    return await this.#requestParsed(
+      url,
+      { method: "GET" },
+      schema,
+      description,
+    );
+  }
+
+  async #requestParsed<T>(
+    url: URL,
+    init: RequestInit,
+    schema: z.ZodType<T>,
+    description: string,
+  ): Promise<T> {
     const requestOptions: RequestOptions = {
       ...this.#request,
       ...(this.#fetch === undefined ? {} : { fetch: this.#fetch }),
@@ -228,7 +441,10 @@ export class DiscogsClient {
     };
     const payload = await requestJson(
       url,
-      { method: "GET", headers: this.#headers() },
+      {
+        ...init,
+        headers: { ...this.#headers(), ...headersRecord(init.headers) },
+      },
       requestOptions,
     );
     try {
@@ -271,6 +487,32 @@ export class DiscogsClient {
     };
   }
 
+  async #mutateWantlist(
+    method: "PUT" | "POST",
+    username: string,
+    releaseId: number,
+    update: UserItemUpdate,
+  ): Promise<DiscogsWantlistItem> {
+    const url = this.#parametersUrl(
+      `${this.#userPath(username)}/wants/${String(releaseId)}`,
+      update,
+    );
+    return await this.#requestParsed(
+      url,
+      { method },
+      wantlistItemSchema,
+      "a wantlist mutation",
+    );
+  }
+
+  #jsonRequest(method: "POST" | "PUT", value: object): RequestInit {
+    return {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(value),
+    };
+  }
+
   #searchUrl(parameters: SearchParameters): URL {
     const url = new URL("/database/search", this.#baseUrl);
     for (const [key, value] of Object.entries(parameters)) {
@@ -290,6 +532,20 @@ export class DiscogsClient {
     return url;
   }
 
+  #parametersUrl(pathname: string, parameters: object): URL {
+    const url = new URL(pathname, this.#baseUrl);
+    for (const [key, value] of Object.entries(parameters)) {
+      if (typeof value === "string" || typeof value === "number") {
+        url.searchParams.set(key, String(value));
+      }
+    }
+    return url;
+  }
+
+  #userPath(username: string): string {
+    return `/users/${encodeURIComponent(username)}`;
+  }
+
   #nextUrl(value: string | undefined): URL | undefined {
     if (value === undefined) return undefined;
     const url = new URL(value);
@@ -302,4 +558,11 @@ export class DiscogsClient {
     }
     return url;
   }
+}
+
+function headersRecord(
+  headers: HeadersInit | undefined,
+): Record<string, string> {
+  if (headers === undefined) return {};
+  return Object.fromEntries(new Headers(headers).entries());
 }

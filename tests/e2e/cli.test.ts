@@ -50,17 +50,23 @@ describe("crateflow CLI", () => {
     );
     const address = server.address() as AddressInfo;
 
-    const result = await runCli(["release", "get", "7", "--json"], {
-      NODE_ENV: "test",
-      CRATEFLOW_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
-    });
+    const result = await runCli(
+      ["--fields", "id,title", "release", "get", "7", "--json"],
+      {
+        NODE_ENV: "test",
+        CRATEFLOW_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
+      },
+    );
 
     expect(result.code).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
       id: 7,
       title: "Local Fixture",
-      artists: ["Fixture Artist"],
     });
+    expect(Object.keys(JSON.parse(result.stdout) as object)).toEqual([
+      "id",
+      "title",
+    ]);
     expect(result.stderr).toBe("");
   });
 
@@ -236,6 +242,135 @@ describe("crateflow CLI", () => {
     expect(JSON.parse(result.stdout)).toMatchObject({
       id: 5,
       title: "Fixture Release",
+    });
+  });
+
+  it("shows a collection add dry-run without sending a write request", async () => {
+    const methods: string[] = [];
+    const server = createServer((request, response) => {
+      methods.push(request.method ?? "");
+      expect(request.url).toBe("/oauth/identity");
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          id: 8,
+          username: "fixture-user",
+          resource_url: "https://api.discogs.com/users/fixture-user",
+        }),
+      );
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address() as AddressInfo;
+    const result = await runCli(
+      ["--token-stdin", "collection", "add", "7", "--dry-run", "--json"],
+      {
+        NODE_ENV: "test",
+        CRATEFLOW_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
+      },
+      "fake-token\n",
+    );
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      action: "collection.add",
+      releaseId: 7,
+      dryRun: true,
+    });
+    expect(methods).toEqual(["GET"]);
+  });
+
+  it("refuses a non-interactive destructive write without --yes", async () => {
+    const server = createServer((request, response) => {
+      expect(request.url).toBe("/oauth/identity");
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          id: 8,
+          username: "fixture-user",
+          resource_url: "https://api.discogs.com/users/fixture-user",
+        }),
+      );
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address() as AddressInfo;
+    const result = await runCli(
+      ["--token-stdin", "wantlist", "remove", "7", "--json"],
+      {
+        NODE_ENV: "test",
+        CRATEFLOW_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
+      },
+      "fake-token\n",
+    );
+    expect(result.code).toBe(10);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("CRATEFLOW_CONFIRMATION_REQUIRED");
+  });
+
+  it("adds to the wantlist through the documented PUT endpoint", async () => {
+    const server = createServer((request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      if (request.url === "/oauth/identity") {
+        response.end(
+          JSON.stringify({
+            id: 8,
+            username: "fixture-user",
+            resource_url: "https://api.discogs.com/users/fixture-user",
+          }),
+        );
+        return;
+      }
+      expect(request.method).toBe("PUT");
+      expect(request.url).toBe(
+        "/users/fixture-user/wants/7?rating=5&notes=priority",
+      );
+      response.end(
+        JSON.stringify({
+          id: 7,
+          rating: 5,
+          notes: "priority",
+          resource_url: "https://api.discogs.com/users/fixture-user/wants/7",
+          basic_information: {
+            id: 7,
+            title: "Fixture Album",
+            resource_url: "https://api.discogs.com/releases/7",
+            artists: [{ name: "Fixture Artist" }],
+          },
+        }),
+      );
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address() as AddressInfo;
+    const result = await runCli(
+      [
+        "--token-stdin",
+        "wantlist",
+        "add",
+        "7",
+        "--rating",
+        "5",
+        "--notes",
+        "priority",
+        "--json",
+      ],
+      {
+        NODE_ENV: "test",
+        CRATEFLOW_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
+      },
+      "fake-token\n",
+    );
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      id: 7,
+      rating: 5,
+      notes: "priority",
     });
   });
 });

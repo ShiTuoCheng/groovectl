@@ -2,7 +2,14 @@ import eslint from "@eslint/js";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist/**", "coverage/**", "eslint.config.js"] },
+  {
+    ignores: [
+      "dist/**",
+      "coverage/**",
+      "eslint.config.js",
+      "scripts/pack-smoke.mjs",
+    ],
+  },
   eslint.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   {

@@ -11,6 +11,9 @@ import { createLabelCommand } from "./commands/label.js";
 import { createMasterCommand } from "./commands/master.js";
 import { createReleaseCommand } from "./commands/release.js";
 import { createSearchCommand } from "./commands/search.js";
+import { createConfigCommand } from "./commands/config.js";
+import { createCollectionCommand } from "./commands/collection.js";
+import { createWantlistCommand } from "./commands/wantlist.js";
 import { CliRuntime, type RuntimeDependencies } from "./runtime.js";
 import { buildInfo, packageVersion } from "../version.js";
 
@@ -33,6 +36,14 @@ export function createProgram(
     .version(packageVersion)
     .option("--token", "Prompt securely for a temporary Discogs User Token.")
     .option("--token-stdin", "Read a temporary Discogs User Token from stdin.")
+    .option("--fields <fields>", "Comma-separated output fields.")
+    .option("--no-color", "Disable colored output.")
+    .option(
+      "--timeout <milliseconds>",
+      "Total request timeout.",
+      positiveInteger,
+    )
+    .option("--verbose", "Write sanitized request diagnostics to stderr.")
     .showHelpAfterError()
     .configureOutput(output);
 
@@ -53,11 +64,14 @@ export function createProgram(
     });
 
   program.addCommand(createAuthCommand(io, runtime));
+  program.addCommand(createConfigCommand(io, runtime));
   program.addCommand(createSearchCommand(io, runtime));
   program.addCommand(createReleaseCommand(io, runtime));
   program.addCommand(createMasterCommand(io, runtime));
   program.addCommand(createArtistCommand(io, runtime));
   program.addCommand(createLabelCommand(io, runtime));
+  program.addCommand(createCollectionCommand(io, runtime));
+  program.addCommand(createWantlistCommand(io, runtime));
   for (const command of program.commands) {
     configureCommandTree(command, output);
   }
@@ -83,5 +97,20 @@ export function positiveInteger(value: string): number {
   ) {
     throw new InvalidArgumentError("expected a positive integer");
   }
+  return parsed;
+}
+
+export function nonNegativeInteger(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 0 || String(parsed) !== value) {
+    throw new InvalidArgumentError("expected a non-negative integer");
+  }
+  return parsed;
+}
+
+export function rating(value: string): number {
+  const parsed = nonNegativeInteger(value);
+  if (parsed > 5)
+    throw new InvalidArgumentError("expected a rating from 0 to 5");
   return parsed;
 }

@@ -62,7 +62,10 @@ describe("DiscogsClient", () => {
   it.each([
     [401, "CRATEFLOW_AUTH_INVALID", "auth_invalid"],
     [403, "CRATEFLOW_FORBIDDEN", "forbidden"],
+    [405, "CRATEFLOW_METHOD_NOT_ALLOWED", "usage"],
+    [422, "CRATEFLOW_VALIDATION_FAILED", "validation"],
     [429, "CRATEFLOW_RATE_LIMITED", "rate_limited"],
+    [500, "CRATEFLOW_DISCOGS_ERROR", "upstream"],
     [503, "CRATEFLOW_DISCOGS_ERROR", "upstream"],
   ] as const)(
     "maps HTTP %i to %s",
@@ -308,7 +311,102 @@ describe("DiscogsClient", () => {
       code: "CRATEFLOW_UNSAFE_PAGINATION_URL",
     });
   });
+
+  it("uses the documented collection endpoints and accepts 204 mutations", async () => {
+    const requests: Array<{ method: string; url: string; body: string }> = [];
+    const { baseUrl } = await startServer((request, response) => {
+      let body = "";
+      request.setEncoding("utf8");
+      request.on("data", (chunk: string) => (body += chunk));
+      request.on("end", () => {
+        requests.push({
+          method: request.method ?? "",
+          url: request.url ?? "",
+          body,
+        });
+        if (request.method === "POST" && request.url?.endsWith("/releases/7")) {
+          response.writeHead(201, { "content-type": "application/json" });
+          response.end(
+            JSON.stringify({
+              instance_id: 12,
+              resource_url: `${baseUrl}/instance/12`,
+            }),
+          );
+          return;
+        }
+        response.writeHead(204).end();
+      });
+    });
+    const client = new DiscogsClient({
+      baseUrl,
+      userAgent: "Crateflow/test",
+      token: "test-token",
+    });
+    await expect(client.addToCollection("a user", 1, 7)).resolves.toMatchObject(
+      { instance_id: 12 },
+    );
+    await expect(
+      client.updateCollectionInstance("a user", 1, 7, 12, { rating: 5 }),
+    ).resolves.toBeUndefined();
+    await expect(
+      client.removeCollectionInstance("a user", 1, 7, 12),
+    ).resolves.toBeUndefined();
+    expect(requests).toEqual([
+      {
+        method: "POST",
+        url: "/users/a%20user/collection/folders/1/releases/7",
+        body: "",
+      },
+      {
+        method: "POST",
+        url: "/users/a%20user/collection/folders/1/releases/7/instances/12",
+        body: '{"rating":5}',
+      },
+      {
+        method: "DELETE",
+        url: "/users/a%20user/collection/folders/1/releases/7/instances/12",
+        body: "",
+      },
+    ]);
+  });
+
+  it("uses PUT, POST, and DELETE for wantlist mutations without retrying writes", async () => {
+    const methods: string[] = [];
+    const { baseUrl } = await startServer((request, response) => {
+      methods.push(request.method ?? "");
+      if (request.method === "DELETE") {
+        response.writeHead(204).end();
+        return;
+      }
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify(wantFixture(baseUrl)));
+    });
+    const client = new DiscogsClient({
+      baseUrl,
+      userAgent: "Crateflow/test",
+      token: "test-token",
+    });
+    await client.addToWantlist("fixture-user", 7, { rating: 4, notes: "find" });
+    await client.updateWantlistItem("fixture-user", 7, { rating: 5 });
+    await client.removeWantlistItem("fixture-user", 7);
+    expect(methods).toEqual(["PUT", "POST", "DELETE"]);
+  });
 });
+
+function wantFixture(baseUrl: string): object {
+  return {
+    id: 7,
+    rating: 4,
+    notes: "find",
+    resource_url: `${baseUrl}/users/fixture-user/wants/7`,
+    basic_information: {
+      id: 7,
+      title: "Fixture Album",
+      resource_url: "https://api.discogs.com/releases/7",
+      artists: [{ name: "Fixture Artist" }],
+    },
+  };
+}
 
 async function startServer(
   handler: (request: IncomingMessage, response: ServerResponse) => void,

@@ -5,14 +5,18 @@ import type { SearchParameters } from "../../discogs/client.js";
 import type { SearchResult } from "../../domain/search-result.js";
 import type { OutputFormat } from "../../output/renderer.js";
 import { positiveInteger } from "../create-program.js";
-import { tokenRequestFor } from "../global-options.js";
+import { fieldsFor, tokenRequestFor } from "../global-options.js";
 import type { CliRuntime } from "../runtime.js";
 import type { CliIo } from "../run-cli.js";
+import { renderRecords } from "../../output/records.js";
 
 interface SearchOptions {
   type?: SearchParameters["type"];
   artist?: string;
+  title?: string;
   releaseTitle?: string;
+  credit?: string;
+  anv?: string;
   label?: string;
   genre?: string;
   style?: string;
@@ -22,6 +26,8 @@ interface SearchOptions {
   catno?: string;
   barcode?: string;
   track?: string;
+  submitter?: string;
+  contributor?: string;
   page?: number;
   perPage: number;
   all?: boolean;
@@ -30,6 +36,17 @@ interface SearchOptions {
 }
 
 const formats = ["table", "json", "jsonl", "tsv"] as const;
+const searchColumns = [
+  { key: "type", value: (item: SearchResult) => item.type },
+  { key: "id", value: (item: SearchResult) => item.id },
+  { key: "title", value: (item: SearchResult) => item.title },
+  { key: "year", value: (item: SearchResult) => item.year },
+  { key: "country", value: (item: SearchResult) => item.country },
+  { key: "formats", value: (item: SearchResult) => item.formats },
+  { key: "labels", value: (item: SearchResult) => item.labels },
+  { key: "catalogNumber", value: (item: SearchResult) => item.catalogNumber },
+  { key: "url", value: (item: SearchResult) => item.url },
+] as const;
 
 export function createSearchCommand(io: CliIo, runtime: CliRuntime): Command {
   return new Command("search")
@@ -44,7 +61,10 @@ export function createSearchCommand(io: CliIo, runtime: CliRuntime): Command {
       ]),
     )
     .option("--artist <name>", "Artist name")
+    .option("--title <title>", "Title")
     .option("--release-title <title>", "Release title")
+    .option("--credit <name>", "Credited artist")
+    .option("--anv <name>", "Artist name variation")
     .option("--label <name>", "Label name")
     .option("--genre <genre>", "Genre")
     .option("--style <style>", "Style")
@@ -54,6 +74,8 @@ export function createSearchCommand(io: CliIo, runtime: CliRuntime): Command {
     .option("--catno <catalog-number>", "Catalog number")
     .option("--barcode <barcode>", "Barcode")
     .option("--track <track>", "Track title")
+    .option("--submitter <username>", "Submitter username")
+    .option("--contributor <username>", "Contributor username")
     .option("--page <page>", "Page number", positiveInteger)
     .option(
       "--per-page <count>",
@@ -79,7 +101,10 @@ export function createSearchCommand(io: CliIo, runtime: CliRuntime): Command {
           q: query,
           type: options.type,
           artist: options.artist,
+          title: options.title,
           release_title: options.releaseTitle,
+          credit: options.credit,
+          anv: options.anv,
           label: options.label,
           genre: options.genre,
           style: options.style,
@@ -89,23 +114,32 @@ export function createSearchCommand(io: CliIo, runtime: CliRuntime): Command {
           catno: options.catno,
           barcode: options.barcode,
           track: options.track,
+          submitter: options.submitter,
+          contributor: options.contributor,
           page: options.page,
           per_page: options.perPage,
         });
         const resolved = await runtime.tokens.resolve(
           tokenRequestFor(command, "token_required"),
         );
-        const client = runtime.client(resolved?.token);
+        const client = await runtime.clientFor(command, resolved?.token);
         await client.getIdentity();
         const service = new DatabaseService(client);
         const results =
           options.all === true
             ? service.searchAll(parameters)
             : asAsync(await service.search(parameters));
-        await renderSearchResults(
+        await renderRecords(
           results,
-          options.json === true ? "json" : options.output,
+          await runtime.formatFor(
+            command,
+            options.output,
+            options.json,
+            "output",
+          ),
+          searchColumns,
           io.stdout,
+          fieldsFor(command),
         );
       },
     );
@@ -126,7 +160,10 @@ function validateOptions(
   const criteria = [
     query,
     options.artist,
+    options.title,
     options.releaseTitle,
+    options.credit,
+    options.anv,
     options.label,
     options.genre,
     options.style,
@@ -136,6 +173,8 @@ function validateOptions(
     options.catno,
     options.barcode,
     options.track,
+    options.submitter,
+    options.contributor,
   ];
   if (!criteria.some((value) => value !== undefined)) {
     command.error("provide a query or at least one search filter.");
@@ -148,52 +187,6 @@ function compact(
   return Object.fromEntries(
     Object.entries(parameters).filter(([, value]) => value !== undefined),
   );
-}
-
-async function renderSearchResults(
-  results: AsyncIterable<SearchResult>,
-  format: OutputFormat,
-  output: Pick<NodeJS.WriteStream, "write">,
-): Promise<void> {
-  if (format === "json") {
-    const values: SearchResult[] = [];
-    for await (const result of results) values.push(result);
-    output.write(`${JSON.stringify(values, null, 2)}\n`);
-    return;
-  }
-  if (format === "jsonl") {
-    for await (const result of results) {
-      output.write(`${JSON.stringify(result)}\n`);
-    }
-    return;
-  }
-  output.write(
-    format === "tsv"
-      ? "type\tid\ttitle\tyear\tcountry\tformats\n"
-      : "TYPE\tID\tTITLE\tYEAR\tCOUNTRY\tFORMAT\n",
-  );
-  for await (const result of results) {
-    output.write(
-      [
-        result.type,
-        String(result.id),
-        result.title,
-        result.year ?? "",
-        result.country ?? "",
-        result.formats.join(", "),
-      ]
-        .map(escapeCell)
-        .join("\t") + "\n",
-    );
-  }
-}
-
-function escapeCell(value: string): string {
-  return value
-    .replaceAll("\\", "\\\\")
-    .replaceAll("\t", "\\t")
-    .replaceAll("\n", "\\n")
-    .replaceAll("\r", "\\r");
 }
 
 async function* asAsync<T>(values: readonly T[]): AsyncGenerator<T> {

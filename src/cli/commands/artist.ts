@@ -4,7 +4,7 @@ import { DatabaseService } from "../../app/database-service.js";
 import type { Artist, ArtistRelease } from "../../domain/database-resource.js";
 import { renderRecord, renderRecords } from "../../output/records.js";
 import { positiveInteger } from "../create-program.js";
-import { tokenRequestFor } from "../global-options.js";
+import { fieldsFor, tokenRequestFor } from "../global-options.js";
 import type { CliRuntime } from "../runtime.js";
 import type { CliIo } from "../run-cli.js";
 import {
@@ -49,9 +49,15 @@ export function createArtistCommand(io: CliIo, runtime: CliRuntime): Command {
       tokenRequestFor(command, "token_optional"),
     );
     const result = await new DatabaseService(
-      runtime.client(token?.token),
+      await runtime.clientFor(command, token?.token),
     ).getArtist(id);
-    renderRecord(result, outputFormat(options), artistColumns, io.stdout);
+    renderRecord(
+      result,
+      await runtime.formatFor(command, outputFormat(options), options.json),
+      artistColumns,
+      io.stdout,
+      fieldsFor(command),
+    );
   });
 
   addListOptions(
@@ -64,7 +70,9 @@ export function createArtistCommand(io: CliIo, runtime: CliRuntime): Command {
     const token = await runtime.tokens.resolve(
       tokenRequestFor(command, "token_optional"),
     );
-    const service = new DatabaseService(runtime.client(token?.token));
+    const service = new DatabaseService(
+      await runtime.clientFor(command, token?.token),
+    );
     const values =
       options.all === true
         ? service.getArtistReleasesAll(id, { per_page: options.perPage })
@@ -76,9 +84,10 @@ export function createArtistCommand(io: CliIo, runtime: CliRuntime): Command {
           );
     await renderRecords(
       values,
-      outputFormat(options),
+      await runtime.formatFor(command, outputFormat(options), options.json),
       releaseColumns,
       io.stdout,
+      fieldsFor(command),
     );
   });
 

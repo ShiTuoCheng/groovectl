@@ -17,7 +17,9 @@ export function createAuthCommand(io: CliIo, runtime: CliRuntime): Command {
         tokenRequestFor(command, "token_required", true),
       );
       if (resolved === undefined) return;
-      const identity = await runtime.client(resolved.token).getIdentity();
+      const identity = await (
+        await runtime.clientFor(command, resolved.token)
+      ).getIdentity();
       await runtime.keyring.set(resolved.token);
       io.stdout.write(`Authenticated as @${identity.username}.\n`);
     });
@@ -38,7 +40,9 @@ export function createAuthCommand(io: CliIo, runtime: CliRuntime): Command {
         );
         return;
       }
-      const identity = await runtime.client(resolved.token).getIdentity();
+      const identity = await (
+        await runtime.clientFor(command, resolved.token)
+      ).getIdentity();
       const result = {
         authenticated: true,
         username: identity.username,

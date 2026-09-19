@@ -29,7 +29,8 @@
     "start": "node dist/bin/crateflow.js",
     "test": "pnpm build && vitest run",
     "test:coverage": "pnpm build && vitest run --coverage",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "verify:package": "node scripts/pack-smoke.mjs"
   },
   "dependencies": {
     "@inquirer/prompts": "^8.7.2",

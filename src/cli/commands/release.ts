@@ -2,13 +2,26 @@ import { Command, Option } from "commander";
 
 import type { CliIo } from "../run-cli.js";
 import { positiveInteger } from "../create-program.js";
-import { tokenRequestFor } from "../global-options.js";
+import { fieldsFor, tokenRequestFor } from "../global-options.js";
 import type { CliRuntime } from "../runtime.js";
 import { DatabaseService } from "../../app/database-service.js";
-import { createRenderer, type OutputFormat } from "../../output/renderer.js";
+import type { OutputFormat } from "../../output/renderer.js";
+import { renderRecord } from "../../output/records.js";
+import type { Release } from "../../domain/release.js";
 import { AppError } from "../../errors/app-error.js";
 
 const supportedFormats = ["table", "json", "jsonl", "tsv"] as const;
+const releaseColumns = [
+  { key: "id", value: (item: Release) => item.id },
+  { key: "title", value: (item: Release) => item.title },
+  { key: "artists", value: (item: Release) => item.artists },
+  { key: "year", value: (item: Release) => item.year },
+  { key: "country", value: (item: Release) => item.country },
+  { key: "formats", value: (item: Release) => item.formats },
+  { key: "genres", value: (item: Release) => item.genres },
+  { key: "styles", value: (item: Release) => item.styles },
+  { key: "url", value: (item: Release) => item.url },
+] as const;
 
 export function createReleaseCommand(io: CliIo, runtime: CliRuntime): Command {
   const release = new Command("release").description("Read Discogs releases.");
@@ -37,14 +50,24 @@ export function createReleaseCommand(io: CliIo, runtime: CliRuntime): Command {
           });
         }
 
-        const format = options.json === true ? "json" : options.format;
+        const format = await runtime.formatFor(
+          command,
+          options.format,
+          options.json,
+        );
         const resolved = await runtime.tokens.resolve(
           tokenRequestFor(command, "token_optional"),
         );
-        const client = runtime.client(resolved?.token);
+        const client = await runtime.clientFor(command, resolved?.token);
         const service = new DatabaseService(client);
         const result = await service.getRelease(id);
-        createRenderer(format, io.stdout).renderOne(result);
+        renderRecord(
+          result,
+          format,
+          releaseColumns,
+          io.stdout,
+          fieldsFor(command),
+        );
       },
     );
 

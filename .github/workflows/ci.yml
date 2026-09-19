@@ -35,5 +35,8 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm format:check
-      - run: pnpm test
-      - run: pnpm pack
+      - run: pnpm test:coverage
+      - run: pnpm audit --prod --audit-level high
+      - name: Verify native keyring can load
+        run: node --input-type=module --eval "await import('@napi-rs/keyring')"
+      - run: pnpm verify:package

@@ -3,10 +3,12 @@ import { AppError } from "../errors/app-error.js";
 export type FetchLike = typeof fetch;
 
 export interface RequestOptions {
+  beforeRequest?: () => Promise<void>;
   fetch?: FetchLike;
   maxRateLimitWaitMs?: number;
   maxRetries?: number;
   onRateLimit?: (state: RateLimitState) => void;
+  onDiagnostic?: (message: string) => void;
   random?: () => number;
   sleep?: (milliseconds: number) => Promise<void>;
   timeoutMs?: number;
@@ -33,11 +35,19 @@ export async function requestJson(
 
   for (let attempt = 0; ; attempt += 1) {
     try {
+      await options.beforeRequest?.();
+      const startedAt = Date.now();
+      options.onDiagnostic?.(
+        `${(init.method ?? "GET").toUpperCase()} ${url.origin}${url.pathname}`,
+      );
       const response = await fetchImpl(url, {
         ...init,
         signal: AbortSignal.timeout(timeoutMs),
       });
       options.onRateLimit?.(rateLimitState(response.headers));
+      options.onDiagnostic?.(
+        `HTTP ${String(response.status)} in ${String(Date.now() - startedAt)}ms`,
+      );
 
       if (!response.ok) {
         const retryDelay = delayForResponse(
@@ -55,7 +65,10 @@ export async function requestJson(
       }
 
       try {
-        return await response.json();
+        if (response.status === 204) return undefined;
+        const text = await response.text();
+        if (text.length === 0) return undefined;
+        return JSON.parse(text) as unknown;
       } catch (cause: unknown) {
         throw new AppError({
           kind: "upstream",
@@ -163,6 +176,22 @@ function errorForStatus(status: number): AppError {
       code: "CRATEFLOW_RATE_LIMITED",
       message: "Discogs rate limit exceeded.",
       remediation: "Wait before retrying the request.",
+      httpStatus: status,
+    });
+  }
+  if (status === 405) {
+    return new AppError({
+      kind: "usage",
+      code: "CRATEFLOW_METHOD_NOT_ALLOWED",
+      message: "Discogs does not allow this operation for the resource.",
+      httpStatus: status,
+    });
+  }
+  if (status === 422) {
+    return new AppError({
+      kind: "validation",
+      code: "CRATEFLOW_VALIDATION_FAILED",
+      message: "Discogs rejected the supplied values.",
       httpStatus: status,
     });
   }

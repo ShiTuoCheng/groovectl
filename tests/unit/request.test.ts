@@ -88,4 +88,22 @@ describe("requestJson", () => {
     ).rejects.toMatchObject({ code: "CRATEFLOW_DISCOGS_ERROR" });
     expect(fetch).toHaveBeenCalledOnce();
   });
+
+  it("maps an aborted slow response to a network error", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new Error("aborted")),
+          );
+        }),
+    );
+    await expect(
+      requestJson(
+        new URL("https://api.discogs.com/slow"),
+        { method: "GET" },
+        { fetch, timeoutMs: 1, maxRetries: 0 },
+      ),
+    ).rejects.toMatchObject({ code: "CRATEFLOW_NETWORK_ERROR" });
+  });
 });
