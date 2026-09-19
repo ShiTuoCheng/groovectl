@@ -2,15 +2,15 @@ import { Command, Option } from "commander";
 
 import type { CliIo } from "../run-cli.js";
 import { positiveInteger } from "../create-program.js";
+import { tokenRequestFor } from "../global-options.js";
+import type { CliRuntime } from "../runtime.js";
 import { DatabaseService } from "../../app/database-service.js";
-import { DiscogsClient } from "../../discogs/client.js";
 import { createRenderer, type OutputFormat } from "../../output/renderer.js";
-import { packageVersion } from "../../version.js";
 import { AppError } from "../../errors/app-error.js";
 
-const supportedFormats = ["table", "json"] as const;
+const supportedFormats = ["table", "json", "jsonl", "tsv"] as const;
 
-export function createReleaseCommand(io: CliIo): Command {
+export function createReleaseCommand(io: CliIo, runtime: CliRuntime): Command {
   const release = new Command("release").description("Read Discogs releases.");
 
   release
@@ -24,7 +24,11 @@ export function createReleaseCommand(io: CliIo): Command {
     )
     .option("--json", "Shortcut for --format json.")
     .action(
-      async (id: number, options: { format: OutputFormat; json?: boolean }) => {
+      async (
+        id: number,
+        options: { format: OutputFormat; json?: boolean },
+        command: Command,
+      ) => {
         if (options.json === true && options.format !== "table") {
           throw new AppError({
             kind: "usage",
@@ -34,10 +38,10 @@ export function createReleaseCommand(io: CliIo): Command {
         }
 
         const format = options.json === true ? "json" : options.format;
-        const client = new DiscogsClient({
-          baseUrl: resolveBaseUrl(process.env),
-          userAgent: `Crateflow/${packageVersion} (local development)`,
-        });
+        const resolved = await runtime.tokens.resolve(
+          tokenRequestFor(command, "token_optional"),
+        );
+        const client = runtime.client(resolved?.token);
         const service = new DatabaseService(client);
         const result = await service.getRelease(id);
         createRenderer(format, io.stdout).renderOne(result);
@@ -45,19 +49,4 @@ export function createReleaseCommand(io: CliIo): Command {
     );
 
   return release;
-}
-
-function resolveBaseUrl(env: NodeJS.ProcessEnv): string {
-  const override = env.CRATEFLOW_API_BASE_URL;
-  if (override === undefined) {
-    return "https://api.discogs.com";
-  }
-  if (env.NODE_ENV !== "test") {
-    throw new AppError({
-      kind: "usage",
-      code: "CRATEFLOW_UNSAFE_BASE_URL",
-      message: "CRATEFLOW_API_BASE_URL is only allowed when NODE_ENV=test.",
-    });
-  }
-  return override;
 }

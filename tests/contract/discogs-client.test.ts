@@ -125,6 +125,189 @@ describe("DiscogsClient", () => {
       },
     );
   });
+
+  it("authenticates identity with the Discogs token header", async () => {
+    const { baseUrl } = await startServer((request, response) => {
+      expect(request.url).toBe("/oauth/identity");
+      expect(request.headers.authorization).toBe("Discogs token=test-token");
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          id: 123,
+          username: "fixture-user",
+          resource_url: "https://api.discogs.com/users/fixture-user",
+          consumer_name: "Crateflow",
+        }),
+      );
+    });
+    const client = new DiscogsClient({
+      baseUrl,
+      userAgent: "Crateflow/test",
+      token: "test-token",
+    });
+    await expect(client.getIdentity()).resolves.toMatchObject({
+      id: 123,
+      username: "fixture-user",
+    });
+  });
+
+  it("serializes database search parameters", async () => {
+    let baseUrl = "";
+    ({ baseUrl } = await startServer((request, response) => {
+      const url = new URL(request.url ?? "", baseUrl);
+      expect(url.pathname).toBe("/database/search");
+      expect(url.searchParams.get("q")).toBe("Kind of Blue");
+      expect(url.searchParams.get("type")).toBe("release");
+      expect(url.searchParams.get("per_page")).toBe("25");
+      expect(request.headers.authorization).toBe("Discogs token=test-token");
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          pagination: { page: 1, pages: 1, per_page: 25, items: 1, urls: {} },
+          results: [
+            {
+              id: 1,
+              type: "release",
+              title: "Miles Davis - Kind of Blue",
+              resource_url: "https://api.discogs.com/releases/1",
+            },
+          ],
+        }),
+      );
+    }));
+    const client = new DiscogsClient({
+      baseUrl,
+      userAgent: "Crateflow/test",
+      token: "test-token",
+    });
+    await expect(
+      client.search({ q: "Kind of Blue", type: "release", per_page: 25 }),
+    ).resolves.toMatchObject({ results: [{ id: 1, type: "release" }] });
+  });
+
+  it("parses master, artist, and label resources", async () => {
+    const { baseUrl } = await startServer((request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      if (request.url === "/masters/1") {
+        response.end(
+          JSON.stringify({
+            id: 1,
+            title: "Master Fixture",
+            main_release: 2,
+            resource_url: "https://api.discogs.com/masters/1",
+            uri: "/master/1",
+            artists: [{ name: "Fixture Artist" }],
+          }),
+        );
+        return;
+      }
+      if (request.url === "/artists/3") {
+        response.end(
+          JSON.stringify({
+            id: 3,
+            name: "Fixture Artist",
+            resource_url: "https://api.discogs.com/artists/3",
+            uri: "/artist/3",
+          }),
+        );
+        return;
+      }
+      response.end(
+        JSON.stringify({
+          id: 4,
+          name: "Fixture Label",
+          resource_url: "https://api.discogs.com/labels/4",
+          uri: "/label/4",
+        }),
+      );
+    });
+    const client = new DiscogsClient({ baseUrl, userAgent: "Crateflow/test" });
+    await expect(client.getMaster(1)).resolves.toMatchObject({
+      id: 1,
+      main_release: 2,
+    });
+    await expect(client.getArtist(3)).resolves.toMatchObject({
+      id: 3,
+      name: "Fixture Artist",
+    });
+    await expect(client.getLabel(4)).resolves.toMatchObject({
+      id: 4,
+      name: "Fixture Label",
+    });
+  });
+
+  it("follows safe pagination links for master versions", async () => {
+    let baseUrl = "";
+    ({ baseUrl } = await startServer((request, response) => {
+      const url = new URL(request.url ?? "", baseUrl);
+      const page = url.searchParams.get("page") ?? "1";
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          pagination: {
+            page: Number(page),
+            pages: 2,
+            per_page: 1,
+            items: 2,
+            urls:
+              page === "1"
+                ? { next: `${baseUrl}/masters/1/versions?page=2` }
+                : {},
+          },
+          versions: [
+            {
+              id: Number(page),
+              title: `Version ${page}`,
+              resource_url: `https://api.discogs.com/releases/${page}`,
+            },
+          ],
+        }),
+      );
+    }));
+    const client = new DiscogsClient({ baseUrl, userAgent: "Crateflow/test" });
+    const ids: number[] = [];
+    for await (const version of client.getMasterVersionsAll(1, {
+      per_page: 1,
+    })) {
+      ids.push(version.id);
+    }
+    expect(ids).toEqual([1, 2]);
+  });
+
+  it("rejects pagination links on a different origin", async () => {
+    const { baseUrl } = await startServer((_request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          pagination: {
+            page: 1,
+            pages: 2,
+            per_page: 1,
+            items: 2,
+            urls: { next: "https://example.com/steal" },
+          },
+          releases: [
+            {
+              id: 1,
+              title: "Fixture",
+              artist: "Artist",
+              resource_url: "https://api.discogs.com/releases/1",
+            },
+          ],
+        }),
+      );
+    });
+    const client = new DiscogsClient({ baseUrl, userAgent: "Crateflow/test" });
+    const consume = async (): Promise<void> => {
+      for await (const value of client.getLabelReleasesAll(1)) {
+        // Consume the first page so pagination validation runs.
+        expect(value.id).toBe(1);
+      }
+    };
+    await expect(consume()).rejects.toMatchObject({
+      code: "CRATEFLOW_UNSAFE_PAGINATION_URL",
+    });
+  });
 });
 
 async function startServer(

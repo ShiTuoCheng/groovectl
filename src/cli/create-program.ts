@@ -5,11 +5,21 @@ import {
 } from "commander";
 
 import type { CliIo } from "./run-cli.js";
+import { createAuthCommand } from "./commands/auth.js";
+import { createArtistCommand } from "./commands/artist.js";
+import { createLabelCommand } from "./commands/label.js";
+import { createMasterCommand } from "./commands/master.js";
 import { createReleaseCommand } from "./commands/release.js";
+import { createSearchCommand } from "./commands/search.js";
+import { CliRuntime, type RuntimeDependencies } from "./runtime.js";
 import { buildInfo, packageVersion } from "../version.js";
 
-export function createProgram(io: CliIo): Command {
+export function createProgram(
+  io: CliIo,
+  dependencies: RuntimeDependencies = {},
+): Command {
   const program = new Command();
+  const runtime = new CliRuntime(dependencies);
   const output: OutputConfiguration = {
     writeOut: (text: string) => io.stdout.write(text),
     writeErr: (text: string) => io.stderr.write(text),
@@ -21,6 +31,8 @@ export function createProgram(io: CliIo): Command {
     .name("crateflow")
     .description("A script-friendly CLI for the Discogs API.")
     .version(packageVersion)
+    .option("--token", "Prompt securely for a temporary Discogs User Token.")
+    .option("--token-stdin", "Read a temporary Discogs User Token from stdin.")
     .showHelpAfterError()
     .configureOutput(output);
 
@@ -40,7 +52,12 @@ export function createProgram(io: CliIo): Command {
       );
     });
 
-  program.addCommand(createReleaseCommand(io));
+  program.addCommand(createAuthCommand(io, runtime));
+  program.addCommand(createSearchCommand(io, runtime));
+  program.addCommand(createReleaseCommand(io, runtime));
+  program.addCommand(createMasterCommand(io, runtime));
+  program.addCommand(createArtistCommand(io, runtime));
+  program.addCommand(createLabelCommand(io, runtime));
   for (const command of program.commands) {
     configureCommandTree(command, output);
   }

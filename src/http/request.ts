@@ -4,7 +4,18 @@ export type FetchLike = typeof fetch;
 
 export interface RequestOptions {
   fetch?: FetchLike;
+  maxRateLimitWaitMs?: number;
+  maxRetries?: number;
+  onRateLimit?: (state: RateLimitState) => void;
+  random?: () => number;
+  sleep?: (milliseconds: number) => Promise<void>;
   timeoutMs?: number;
+}
+
+export interface RateLimitState {
+  limit: number | null;
+  remaining: number | null;
+  used: number | null;
 }
 
 export async function requestJson(
@@ -14,40 +25,111 @@ export async function requestJson(
 ): Promise<unknown> {
   const fetchImpl = options.fetch ?? fetch;
   const timeoutMs = options.timeoutMs ?? 30_000;
+  const maxRetries = options.maxRetries ?? 3;
+  const maxRateLimitWaitMs = options.maxRateLimitWaitMs ?? 60_000;
+  const sleep = options.sleep ?? defaultSleep;
+  const random = options.random ?? Math.random;
+  const retryableMethod = (init.method ?? "GET").toUpperCase() === "GET";
 
-  try {
-    const response = await fetchImpl(url, {
-      ...init,
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-
-    if (!response.ok) {
-      throw errorForStatus(response.status);
-    }
-
+  for (let attempt = 0; ; attempt += 1) {
     try {
-      return await response.json();
-    } catch (cause: unknown) {
+      const response = await fetchImpl(url, {
+        ...init,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      options.onRateLimit?.(rateLimitState(response.headers));
+
+      if (!response.ok) {
+        const retryDelay = delayForResponse(
+          response,
+          attempt,
+          retryableMethod ? maxRetries : 0,
+          maxRateLimitWaitMs,
+          random,
+        );
+        if (retryDelay !== undefined) {
+          await sleep(retryDelay);
+          continue;
+        }
+        throw errorForStatus(response.status);
+      }
+
+      try {
+        return await response.json();
+      } catch (cause: unknown) {
+        throw new AppError({
+          kind: "upstream",
+          code: "CRATEFLOW_INVALID_RESPONSE",
+          message: "Discogs returned an invalid JSON response.",
+          httpStatus: response.status,
+          cause,
+        });
+      }
+    } catch (error: unknown) {
+      if (error instanceof AppError) throw error;
+      if (retryableMethod && attempt < maxRetries) {
+        await sleep(backoffDelay(attempt, random));
+        continue;
+      }
       throw new AppError({
-        kind: "upstream",
-        code: "CRATEFLOW_INVALID_RESPONSE",
-        message: "Discogs returned an invalid JSON response.",
-        httpStatus: response.status,
-        cause,
+        kind: "network",
+        code: "CRATEFLOW_NETWORK_ERROR",
+        message: "The request to Discogs failed.",
+        remediation: "Check your network connection and try again.",
+        cause: error,
       });
     }
-  } catch (error: unknown) {
-    if (error instanceof AppError) {
-      throw error;
-    }
-    throw new AppError({
-      kind: "network",
-      code: "CRATEFLOW_NETWORK_ERROR",
-      message: "The request to Discogs failed.",
-      remediation: "Check your network connection and try again.",
-      cause: error,
-    });
   }
+}
+
+function delayForResponse(
+  response: Response,
+  attempt: number,
+  maxRetries: number,
+  maxRateLimitWaitMs: number,
+  random: () => number,
+): number | undefined {
+  if (attempt >= maxRetries) return undefined;
+  if ([502, 503, 504].includes(response.status)) {
+    return backoffDelay(attempt, random);
+  }
+  if (response.status !== 429) return undefined;
+  const retryAfter = parseRetryAfter(response.headers.get("retry-after"));
+  return retryAfter !== undefined && retryAfter <= maxRateLimitWaitMs
+    ? retryAfter
+    : undefined;
+}
+
+function parseRetryAfter(value: string | null): number | undefined {
+  if (value === null) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000;
+  const date = Date.parse(value);
+  if (Number.isNaN(date)) return undefined;
+  return Math.max(0, date - Date.now());
+}
+
+function backoffDelay(attempt: number, random: () => number): number {
+  return 250 * 2 ** attempt + Math.floor(random() * 100);
+}
+
+function rateLimitState(headers: Headers): RateLimitState {
+  return {
+    limit: integerHeader(headers, "x-discogs-ratelimit"),
+    remaining: integerHeader(headers, "x-discogs-ratelimit-remaining"),
+    used: integerHeader(headers, "x-discogs-ratelimit-used"),
+  };
+}
+
+function integerHeader(headers: Headers, name: string): number | null {
+  const value = headers.get(name);
+  if (value === null) return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+async function defaultSleep(milliseconds: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function errorForStatus(status: number): AppError {

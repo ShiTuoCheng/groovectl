@@ -1,6 +1,7 @@
 import { CommanderError } from "commander";
 
 import { createProgram } from "./create-program.js";
+import type { RuntimeDependencies } from "./runtime.js";
 import { asAppError, exitCodeForError } from "../errors/app-error.js";
 
 export interface CliIo {
@@ -16,8 +17,9 @@ const defaultIo: CliIo = {
 export async function runCli(
   argv: readonly string[],
   io: CliIo = defaultIo,
+  dependencies: RuntimeDependencies = {},
 ): Promise<number> {
-  const program = createProgram(io);
+  const program = createProgram(io, dependencies);
   program.exitOverride();
 
   try {
