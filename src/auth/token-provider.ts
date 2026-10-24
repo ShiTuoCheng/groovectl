@@ -84,7 +84,7 @@ export class TokenResolver {
     if (!this.#interactive) {
       throw new AppError({
         kind: "auth_required",
-        code: "CRATEFLOW_AUTH_REQUIRED",
+        code: "GROOVECTL_AUTH_REQUIRED",
         message: "This command requires a Discogs User Token.",
         remediation:
           "Use --token-stdin, DISCOGS_TOKEN, auth login, or run in an interactive terminal with --token.",
@@ -99,7 +99,7 @@ function normalizeToken(value: string, source: TokenSource): string {
   if (token.length === 0) {
     throw new AppError({
       kind: "auth_invalid",
-      code: "CRATEFLOW_TOKEN_EMPTY",
+      code: "GROOVECTL_TOKEN_EMPTY",
       message: `The token read from ${source} was empty.`,
     });
   }
@@ -125,7 +125,7 @@ async function readAll(
 export function keyringUnavailable(cause: unknown): AppError {
   return new AppError({
     kind: "upstream",
-    code: "CRATEFLOW_KEYRING_UNAVAILABLE",
+    code: "GROOVECTL_KEYRING_UNAVAILABLE",
     message: "The operating system credential store is unavailable.",
     remediation: "Use --token-stdin or DISCOGS_TOKEN for a temporary token.",
     cause,

@@ -1,13 +1,15 @@
-import { AsyncEntry } from "@napi-rs/keyring";
+import type { AsyncEntry } from "@napi-rs/keyring";
 
 import type { Keyring } from "./token-provider.js";
 import { keyringUnavailable } from "./token-provider.js";
 
 export class NativeKeyring implements Keyring {
-  readonly #entry: AsyncEntry;
+  #entry: AsyncEntry | undefined;
 
-  constructor() {
-    try {
+  async #getEntry(): Promise<AsyncEntry> {
+    if (this.#entry === undefined) {
+      const { AsyncEntry } = await import("@napi-rs/keyring");
+      // Keep the original namespace so renaming the CLI preserves saved tokens.
       this.#entry = new AsyncEntry(
         "crateflow",
         "default",
@@ -15,14 +17,13 @@ export class NativeKeyring implements Keyring {
           ? { linux: { store: "secret-service" } }
           : undefined,
       );
-    } catch (cause: unknown) {
-      throw keyringUnavailable(cause);
     }
+    return this.#entry;
   }
 
   async get(): Promise<string | undefined> {
     try {
-      return await this.#entry.getPassword();
+      return await (await this.#getEntry()).getPassword();
     } catch (cause: unknown) {
       throw keyringUnavailable(cause);
     }
@@ -30,7 +31,7 @@ export class NativeKeyring implements Keyring {
 
   async set(token: string): Promise<void> {
     try {
-      await this.#entry.setPassword(token);
+      await (await this.#getEntry()).setPassword(token);
     } catch (cause: unknown) {
       throw keyringUnavailable(cause);
     }
@@ -38,7 +39,7 @@ export class NativeKeyring implements Keyring {
 
   async delete(): Promise<boolean> {
     try {
-      return await this.#entry.deletePassword();
+      return await (await this.#getEntry()).deletePassword();
     } catch (cause: unknown) {
       throw keyringUnavailable(cause);
     }

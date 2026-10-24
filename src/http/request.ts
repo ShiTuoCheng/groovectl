@@ -72,7 +72,7 @@ export async function requestJson(
       } catch (cause: unknown) {
         throw new AppError({
           kind: "upstream",
-          code: "CRATEFLOW_INVALID_RESPONSE",
+          code: "GROOVECTL_INVALID_RESPONSE",
           message: "Discogs returned an invalid JSON response.",
           httpStatus: response.status,
           cause,
@@ -86,7 +86,7 @@ export async function requestJson(
       }
       throw new AppError({
         kind: "network",
-        code: "CRATEFLOW_NETWORK_ERROR",
+        code: "GROOVECTL_NETWORK_ERROR",
         message: "The request to Discogs failed.",
         remediation: "Check your network connection and try again.",
         cause: error,
@@ -149,7 +149,7 @@ function errorForStatus(status: number): AppError {
   if (status === 401) {
     return new AppError({
       kind: "auth_invalid",
-      code: "CRATEFLOW_AUTH_INVALID",
+      code: "GROOVECTL_AUTH_INVALID",
       message: "Discogs rejected the supplied token.",
       httpStatus: status,
     });
@@ -157,7 +157,7 @@ function errorForStatus(status: number): AppError {
   if (status === 403) {
     return new AppError({
       kind: "forbidden",
-      code: "CRATEFLOW_FORBIDDEN",
+      code: "GROOVECTL_FORBIDDEN",
       message: "Discogs denied access to this resource.",
       httpStatus: status,
     });
@@ -165,7 +165,7 @@ function errorForStatus(status: number): AppError {
   if (status === 404) {
     return new AppError({
       kind: "not_found",
-      code: "CRATEFLOW_NOT_FOUND",
+      code: "GROOVECTL_NOT_FOUND",
       message: "The requested Discogs resource was not found.",
       httpStatus: status,
     });
@@ -173,7 +173,7 @@ function errorForStatus(status: number): AppError {
   if (status === 429) {
     return new AppError({
       kind: "rate_limited",
-      code: "CRATEFLOW_RATE_LIMITED",
+      code: "GROOVECTL_RATE_LIMITED",
       message: "Discogs rate limit exceeded.",
       remediation: "Wait before retrying the request.",
       httpStatus: status,
@@ -182,7 +182,7 @@ function errorForStatus(status: number): AppError {
   if (status === 405) {
     return new AppError({
       kind: "usage",
-      code: "CRATEFLOW_METHOD_NOT_ALLOWED",
+      code: "GROOVECTL_METHOD_NOT_ALLOWED",
       message: "Discogs does not allow this operation for the resource.",
       httpStatus: status,
     });
@@ -190,14 +190,14 @@ function errorForStatus(status: number): AppError {
   if (status === 422) {
     return new AppError({
       kind: "validation",
-      code: "CRATEFLOW_VALIDATION_FAILED",
+      code: "GROOVECTL_VALIDATION_FAILED",
       message: "Discogs rejected the supplied values.",
       httpStatus: status,
     });
   }
   return new AppError({
     kind: "upstream",
-    code: "CRATEFLOW_DISCOGS_ERROR",
+    code: "GROOVECTL_DISCOGS_ERROR",
     message: `Discogs returned HTTP ${String(status)}.`,
     httpStatus: status,
   });

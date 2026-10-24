@@ -52,7 +52,7 @@ export class CliRuntime {
   client(token?: string, timeoutMs?: number): DiscogsClient {
     return new DiscogsClient({
       baseUrl: resolveBaseUrl(this.env),
-      userAgent: `Crateflow/${packageVersion} (local development)`,
+      userAgent: `Groovectl/${packageVersion} (local development)`,
       ...(this.#fetch === undefined ? {} : { fetch: this.#fetch }),
       ...(token === undefined ? {} : { token }),
       ...(timeoutMs === undefined ? {} : { timeoutMs }),
@@ -64,7 +64,7 @@ export class CliRuntime {
     const verbose = command.optsWithGlobals<GlobalOptions>().verbose === true;
     return new DiscogsClient({
       baseUrl: resolveBaseUrl(this.env),
-      userAgent: `Crateflow/${packageVersion} (local development)`,
+      userAgent: `Groovectl/${packageVersion} (local development)`,
       ...(this.#fetch === undefined ? {} : { fetch: this.#fetch }),
       ...(token === undefined ? {} : { token }),
       timeoutMs: timeoutFor(command) ?? config.timeoutMs,
@@ -75,7 +75,7 @@ export class CliRuntime {
         ...(verbose
           ? {
               onDiagnostic: (message: string) =>
-                process.stderr.write(`[crateflow] ${message}\n`),
+                process.stderr.write(`[groovectl] ${message}\n`),
             }
           : {}),
       },
@@ -97,15 +97,15 @@ export class CliRuntime {
 }
 
 function resolveBaseUrl(env: NodeJS.ProcessEnv): string {
-  const override = env.CRATEFLOW_API_BASE_URL;
+  const override = env.GROOVECTL_API_BASE_URL ?? env.CRATEFLOW_API_BASE_URL;
   if (override === undefined) {
     return "https://api.discogs.com";
   }
   if (env.NODE_ENV !== "test") {
     throw new AppError({
       kind: "usage",
-      code: "CRATEFLOW_UNSAFE_BASE_URL",
-      message: "CRATEFLOW_API_BASE_URL is only allowed when NODE_ENV=test.",
+      code: "GROOVECTL_UNSAFE_BASE_URL",
+      message: "API base URL overrides are only allowed when NODE_ENV=test.",
     });
   }
   return override;

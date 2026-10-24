@@ -9,7 +9,11 @@ import type {
   MutationResult,
 } from "../../domain/user-resource.js";
 import { AppError } from "../../errors/app-error.js";
-import { renderRecord, renderRecords } from "../../output/records.js";
+import {
+  renderRecord,
+  renderRecords,
+  validateOutputFields,
+} from "../../output/records.js";
 import {
   nonNegativeInteger,
   positiveInteger,
@@ -192,6 +196,16 @@ export function createCollectionCommand(
         options: RecordOptions & { folder: number; dryRun?: boolean },
         command: Command,
       ) => {
+        const format = await runtime.formatFor(
+          command,
+          outputFormat(options),
+          options.json,
+        );
+        const fields = fieldsFor(command);
+        validateOutputFields(
+          options.dryRun === true ? mutationColumns : addColumns,
+          fields,
+        );
         const { service, username } = await context(runtime, command);
         if (options.dryRun === true) {
           renderRecord(
@@ -202,23 +216,19 @@ export function createCollectionCommand(
               folderId: options.folder,
               dryRun: true,
             },
-            await runtime.formatFor(
-              command,
-              outputFormat(options),
-              options.json,
-            ),
+            format,
             mutationColumns,
             io.stdout,
-            fieldsFor(command),
+            fields,
           );
           return;
         }
         renderRecord(
           await service.add(username, options.folder, releaseId),
-          await runtime.formatFor(command, outputFormat(options), options.json),
+          format,
           addColumns,
           io.stdout,
-          fieldsFor(command),
+          fields,
         );
       },
     );
@@ -248,6 +258,13 @@ export function createCollectionCommand(
       ) => {
         if (options.rating === undefined && options.moveTo === undefined)
           throw usage("Provide --rating and/or --move-to.");
+        const format = await runtime.formatFor(
+          command,
+          outputFormat(options),
+          options.json,
+        );
+        const fields = fieldsFor(command);
+        validateOutputFields(mutationColumns, fields);
         const { service, username } = await context(runtime, command);
         const result: MutationResult = {
           action: "collection.update",
@@ -265,13 +282,7 @@ export function createCollectionCommand(
               : { folder_id: options.moveTo }),
             ...(options.rating === undefined ? {} : { rating: options.rating }),
           });
-        renderRecord(
-          result,
-          await runtime.formatFor(command, outputFormat(options), options.json),
-          mutationColumns,
-          io.stdout,
-          fieldsFor(command),
-        );
+        renderRecord(result, format, mutationColumns, io.stdout, fields);
       },
     );
 
@@ -293,6 +304,13 @@ export function createCollectionCommand(
         options: RecordOptions & { yes?: boolean; dryRun?: boolean },
         command: Command,
       ) => {
+        const format = await runtime.formatFor(
+          command,
+          outputFormat(options),
+          options.json,
+        );
+        const fields = fieldsFor(command);
+        validateOutputFields(mutationColumns, fields);
         const { service, username } = await context(runtime, command);
         const result: MutationResult = {
           action: "collection.remove",
@@ -310,13 +328,7 @@ export function createCollectionCommand(
           );
           await service.remove(username, folderId, releaseId, instanceId);
         }
-        renderRecord(
-          result,
-          await runtime.formatFor(command, outputFormat(options), options.json),
-          mutationColumns,
-          io.stdout,
-          fieldsFor(command),
-        );
+        renderRecord(result, format, mutationColumns, io.stdout, fields);
       },
     );
 
@@ -351,5 +363,5 @@ async function context(
 }
 
 function usage(message: string): AppError {
-  return new AppError({ kind: "usage", code: "CRATEFLOW_USAGE", message });
+  return new AppError({ kind: "usage", code: "GROOVECTL_USAGE", message });
 }

@@ -6,7 +6,7 @@ import { DiscogsClient } from "../../src/discogs/client.js";
 describe("DatabaseService", () => {
   it("maps a Discogs release to the stable output model", async () => {
     const client = new DiscogsClient({
-      userAgent: "Crateflow/test",
+      userAgent: "Groovectl/test",
       fetch: () =>
         Promise.resolve(
           new Response(

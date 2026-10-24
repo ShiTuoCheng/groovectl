@@ -56,7 +56,7 @@ export async function renderRecords<T extends object>(
       if (values.length > 10_000) {
         throw new AppError({
           kind: "usage",
-          code: "CRATEFLOW_JSON_LIMIT",
+          code: "GROOVECTL_JSON_LIMIT",
           message: "JSON output is limited to 10,000 records.",
           remediation: "Use --format jsonl for streaming output.",
         });
@@ -83,10 +83,17 @@ export async function renderRecords<T extends object>(
   }
 }
 
-function selectColumns<T>(
-  columns: readonly Column<T>[],
+export function validateOutputFields(
+  columns: readonly { key: string }[],
   selectedFields: readonly string[] | undefined,
-): readonly Column<T>[] {
+): void {
+  selectColumns(columns, selectedFields);
+}
+
+function selectColumns<T extends { key: string }>(
+  columns: readonly T[],
+  selectedFields: readonly string[] | undefined,
+): readonly T[] {
   if (selectedFields === undefined) return columns;
   const byKey = new Map(columns.map((column) => [column.key, column]));
   return selectedFields.map((field) => {
@@ -94,7 +101,7 @@ function selectColumns<T>(
     if (column === undefined) {
       throw new AppError({
         kind: "usage",
-        code: "CRATEFLOW_FIELD_UNKNOWN",
+        code: "GROOVECTL_FIELD_UNKNOWN",
         message: `Unknown output field: ${field}.`,
         remediation: `Available fields: ${columns.map(({ key }) => key).join(", ")}.`,
       });

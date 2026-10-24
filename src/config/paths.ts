@@ -5,9 +5,11 @@ export function configFilePath(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
 ): string {
-  if (env.NODE_ENV === "test" && env.CRATEFLOW_CONFIG_DIR !== undefined) {
-    return join(env.CRATEFLOW_CONFIG_DIR, "config.json");
+  const testDirectory = env.GROOVECTL_CONFIG_DIR ?? env.CRATEFLOW_CONFIG_DIR;
+  if (env.NODE_ENV === "test" && testDirectory !== undefined) {
+    return join(testDirectory, "config.json");
   }
+  // Keep the original directory to preserve existing user settings.
   const home = homedir();
   if (platform === "win32") {
     return join(

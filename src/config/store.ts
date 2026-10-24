@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import { configSchema, defaultConfig, type CrateflowConfig } from "./schema.js";
+import { configSchema, defaultConfig, type GroovectlConfig } from "./schema.js";
 import { AppError } from "../errors/app-error.js";
 
 export class ConfigStore {
@@ -15,7 +15,7 @@ export class ConfigStore {
     return this.#path;
   }
 
-  async read(): Promise<CrateflowConfig> {
+  async read(): Promise<GroovectlConfig> {
     let text: string;
     try {
       text = await readFile(this.#path, "utf8");
@@ -29,8 +29,8 @@ export class ConfigStore {
     } catch (cause: unknown) {
       throw new AppError({
         kind: "validation",
-        code: "CRATEFLOW_CONFIG_INVALID",
-        message: "The Crateflow configuration file is not valid JSON.",
+        code: "GROOVECTL_CONFIG_INVALID",
+        message: "The Groovectl configuration file is not valid JSON.",
         cause,
       });
     }
@@ -39,14 +39,14 @@ export class ConfigStore {
     } catch (cause: unknown) {
       throw new AppError({
         kind: "validation",
-        code: "CRATEFLOW_CONFIG_INVALID",
-        message: "The Crateflow configuration contains invalid values.",
+        code: "GROOVECTL_CONFIG_INVALID",
+        message: "The Groovectl configuration contains invalid values.",
         cause,
       });
     }
   }
 
-  async write(config: CrateflowConfig): Promise<void> {
+  async write(config: GroovectlConfig): Promise<void> {
     const value = configSchema.parse(config);
     const directory = dirname(this.#path);
     const temporaryPath = `${this.#path}.${String(process.pid)}.tmp`;
@@ -62,10 +62,10 @@ export class ConfigStore {
     }
   }
 
-  async set<K extends keyof CrateflowConfig>(
+  async set<K extends keyof GroovectlConfig>(
     key: K,
-    value: CrateflowConfig[K],
-  ): Promise<CrateflowConfig> {
+    value: GroovectlConfig[K],
+  ): Promise<GroovectlConfig> {
     const next = configSchema.parse({ ...(await this.read()), [key]: value });
     await this.write(next);
     return next;

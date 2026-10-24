@@ -1,9 +1,12 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { once } from "node:events";
+import { resolve } from "node:path";
+import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it } from "vitest";
+import { listingFixture, statsFixture } from "../fixtures/marketplace.js";
 
 const servers: ReturnType<typeof createServer>[] = [];
 
@@ -20,12 +23,91 @@ afterEach(async () => {
   );
 });
 
-describe("crateflow CLI", () => {
+describe("groovectl CLI", () => {
+  it.skipIf(process.platform === "win32")(
+    "runs the built executable directly after a clean build",
+    async () => {
+      const { stdout, stderr } = await promisify(execFile)(
+        resolve("dist/bin/groovectl.js"),
+        ["version", "--json"],
+      );
+      expect(stderr).toBe("");
+      expect(JSON.parse(stdout)).toMatchObject({ version: "0.1.0" });
+    },
+  );
+
+  it.each([
+    {
+      args: ["stats", "7"],
+      path: "/marketplace/stats/7?curr_abbr=EUR",
+      body: statsFixture,
+      expected: { releaseId: 7, numForSale: 3 },
+    },
+    {
+      args: ["listing", "get", "42"],
+      path: "/marketplace/listings/42?curr_abbr=EUR",
+      body: listingFixture,
+      expected: {
+        id: 42,
+        seller: { username: "fixture-seller", rating: 99.5 },
+      },
+    },
+    {
+      args: ["fee", "45.00"],
+      path: "/marketplace/fee/45.00/EUR",
+      body: { value: 1.23, currency: "EUR" },
+      expected: {
+        price: { value: 45, currency: "EUR" },
+        fee: { value: 1.23, currency: "EUR" },
+      },
+    },
+  ])(
+    "reads Marketplace through the built CLI: $path",
+    async ({ args, path, body, expected }) => {
+      const requests: string[] = [];
+      const server = createServer((request, response) => {
+        requests.push(`${request.method ?? ""} ${request.url ?? ""}`);
+        expect(request.headers.authorization).toBe(
+          "Discogs token=fake-marketplace-token",
+        );
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify(body));
+      });
+      servers.push(server);
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      const address = server.address() as AddressInfo;
+      const result = await runCli(
+        [
+          "--token-stdin",
+          "marketplace",
+          ...args,
+          "--currency",
+          "EUR",
+          "--json",
+        ],
+        {
+          NODE_ENV: "test",
+          GROOVECTL_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
+        },
+        "fake-marketplace-token\n",
+      );
+      expect(result.code).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toMatchObject(expected);
+      expect(result.stdout).not.toContain("fake-marketplace-token");
+      expect(result.stdout).not.toContain("private-fixture");
+      expect(requests).toEqual([`GET ${path}`]);
+    },
+  );
+
   it("prints machine-readable version information", async () => {
     const result = await runCli(["version", "--json"]);
     expect(result.code).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
-      version: "0.0.0-development",
+      version: "0.1.0",
       platform: process.platform,
       arch: process.arch,
     });
@@ -54,7 +136,7 @@ describe("crateflow CLI", () => {
       ["--fields", "id,title", "release", "get", "7", "--json"],
       {
         NODE_ENV: "test",
-        CRATEFLOW_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
+        GROOVECTL_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
       },
     );
 
@@ -74,7 +156,7 @@ describe("crateflow CLI", () => {
     const result = await runCli(["release", "get", "not-an-id"]);
     expect(result.code).toBe(2);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("CRATEFLOW_USAGE:");
+    expect(result.stderr).toContain("GROOVECTL_USAGE:");
     expect(result.stderr).toContain("expected a positive integer");
   });
 
@@ -100,7 +182,7 @@ describe("crateflow CLI", () => {
       ["--token-stdin", "auth", "status", "--json"],
       {
         NODE_ENV: "test",
-        CRATEFLOW_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
+        GROOVECTL_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
       },
       "fake-token\n",
     );
@@ -164,7 +246,7 @@ describe("crateflow CLI", () => {
       ],
       {
         NODE_ENV: "test",
-        CRATEFLOW_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
+        GROOVECTL_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
       },
       "fake-token\n",
     );
@@ -198,7 +280,7 @@ describe("crateflow CLI", () => {
     const address = server.address() as AddressInfo;
     const result = await runCli(["master", "get", "1", "--json"], {
       NODE_ENV: "test",
-      CRATEFLOW_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
+      GROOVECTL_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
     });
     expect(result.code).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
@@ -235,7 +317,7 @@ describe("crateflow CLI", () => {
       ["label", "releases", "4", "--format", "jsonl"],
       {
         NODE_ENV: "test",
-        CRATEFLOW_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
+        GROOVECTL_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
       },
     );
     expect(result.code).toBe(0);
@@ -268,7 +350,7 @@ describe("crateflow CLI", () => {
       ["--token-stdin", "collection", "add", "7", "--dry-run", "--json"],
       {
         NODE_ENV: "test",
-        CRATEFLOW_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
+        GROOVECTL_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
       },
       "fake-token\n",
     );
@@ -302,13 +384,13 @@ describe("crateflow CLI", () => {
       ["--token-stdin", "wantlist", "remove", "7", "--json"],
       {
         NODE_ENV: "test",
-        CRATEFLOW_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
+        GROOVECTL_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
       },
       "fake-token\n",
     );
     expect(result.code).toBe(10);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("CRATEFLOW_CONFIRMATION_REQUIRED");
+    expect(result.stderr).toContain("GROOVECTL_CONFIRMATION_REQUIRED");
   });
 
   it("adds to the wantlist through the documented PUT endpoint", async () => {
@@ -362,7 +444,7 @@ describe("crateflow CLI", () => {
       ],
       {
         NODE_ENV: "test",
-        CRATEFLOW_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
+        GROOVECTL_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
       },
       "fake-token\n",
     );
@@ -380,7 +462,7 @@ async function runCli(
   env: NodeJS.ProcessEnv = {},
   input?: string,
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
-  const child = spawn(process.execPath, ["dist/bin/crateflow.js", ...args], {
+  const child = spawn(process.execPath, ["dist/bin/groovectl.js", ...args], {
     cwd: process.cwd(),
     env: { ...process.env, ...env },
     stdio: ["pipe", "pipe", "pipe"],

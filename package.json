@@ -1,12 +1,12 @@
 {
-  "name": "crateflow",
-  "version": "0.0.0-development",
+  "name": "groovectl",
+  "version": "0.1.0",
   "description": "A script-friendly CLI for the Discogs API.",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
-    "crateflow": "dist/bin/crateflow.js"
+    "groovectl": "dist/bin/groovectl.js"
   },
   "files": [
     "dist",
@@ -20,13 +20,13 @@
   },
   "packageManager": "pnpm@10.26.2",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node --input-type=module --eval \"import { chmodSync } from 'node:fs'; if (process.platform !== 'win32') chmodSync('dist/bin/groovectl.js', 0o755);\"",
     "clean": "node --eval \"import('node:fs/promises').then(({ rm }) => rm('dist', { recursive: true, force: true }))\"",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "prepack": "pnpm clean && pnpm build",
-    "start": "node dist/bin/crateflow.js",
+    "start": "node dist/bin/groovectl.js",
     "test": "pnpm build && vitest run",
     "test:coverage": "pnpm build && vitest run --coverage",
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -36,7 +36,7 @@
     "@inquirer/prompts": "^8.7.2",
     "@napi-rs/keyring": "^2.1.0",
     "commander": "^15.0.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -100,7 +100,7 @@ describe("TokenResolver", () => {
         forcePrompt: false,
       }),
     ).rejects.toMatchObject({
-      code: "CRATEFLOW_AUTH_REQUIRED",
+      code: "GROOVECTL_AUTH_REQUIRED",
       kind: "auth_required",
     });
   });

@@ -13,6 +13,6 @@ export const configSchema = z.object({
     .default(60_000),
 });
 
-export type CrateflowConfig = z.infer<typeof configSchema>;
+export type GroovectlConfig = z.infer<typeof configSchema>;
 
-export const defaultConfig: CrateflowConfig = configSchema.parse({});
+export const defaultConfig: GroovectlConfig = configSchema.parse({});

@@ -85,7 +85,7 @@ describe("requestJson", () => {
         { method: "POST" },
         { fetch, sleep: () => Promise.resolve() },
       ),
-    ).rejects.toMatchObject({ code: "CRATEFLOW_DISCOGS_ERROR" });
+    ).rejects.toMatchObject({ code: "GROOVECTL_DISCOGS_ERROR" });
     expect(fetch).toHaveBeenCalledOnce();
   });
 
@@ -104,6 +104,6 @@ describe("requestJson", () => {
         { method: "GET" },
         { fetch, timeoutMs: 1, maxRetries: 0 },
       ),
-    ).rejects.toMatchObject({ code: "CRATEFLOW_NETWORK_ERROR" });
+    ).rejects.toMatchObject({ code: "GROOVECTL_NETWORK_ERROR" });
   });
 });

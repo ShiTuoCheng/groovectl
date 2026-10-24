@@ -14,6 +14,7 @@ import { createSearchCommand } from "./commands/search.js";
 import { createConfigCommand } from "./commands/config.js";
 import { createCollectionCommand } from "./commands/collection.js";
 import { createWantlistCommand } from "./commands/wantlist.js";
+import { createMarketplaceCommand } from "./commands/marketplace.js";
 import { CliRuntime, type RuntimeDependencies } from "./runtime.js";
 import { buildInfo, packageVersion } from "../version.js";
 
@@ -27,11 +28,11 @@ export function createProgram(
     writeOut: (text: string) => io.stdout.write(text),
     writeErr: (text: string) => io.stderr.write(text),
     outputError: (text: string, write: (text: string) => void) =>
-      write(text.replace(/^error:/u, "CRATEFLOW_USAGE:")),
+      write(text.replace(/^error:/u, "GROOVECTL_USAGE:")),
   };
 
   program
-    .name("crateflow")
+    .name("groovectl")
     .description("A script-friendly CLI for the Discogs API.")
     .version(packageVersion)
     .option("--token", "Prompt securely for a temporary Discogs User Token.")
@@ -40,7 +41,7 @@ export function createProgram(
     .option("--no-color", "Disable colored output.")
     .option(
       "--timeout <milliseconds>",
-      "Total request timeout.",
+      "HTTP timeout per request attempt, in milliseconds.",
       positiveInteger,
     )
     .option("--verbose", "Write sanitized request diagnostics to stderr.")
@@ -59,7 +60,7 @@ export function createProgram(
       }
 
       io.stdout.write(
-        `crateflow ${info.version} (${info.platform}/${info.arch}, ${info.nodeVersion})\n`,
+        `groovectl ${info.version} (${info.platform}/${info.arch}, ${info.nodeVersion})\n`,
       );
     });
 
@@ -72,6 +73,7 @@ export function createProgram(
   program.addCommand(createLabelCommand(io, runtime));
   program.addCommand(createCollectionCommand(io, runtime));
   program.addCommand(createWantlistCommand(io, runtime));
+  program.addCommand(createMarketplaceCommand(io, runtime));
   for (const command of program.commands) {
     configureCommandTree(command, output);
   }

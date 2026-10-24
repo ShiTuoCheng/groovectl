@@ -6,6 +6,12 @@ import {
   type RequestOptions,
 } from "../http/request.js";
 import { AppError } from "../errors/app-error.js";
+import type { MarketplaceCurrency } from "../domain/marketplace.js";
+import {
+  marketplaceListingSchema,
+  marketplaceStatsSchema,
+  moneySchema,
+} from "./marketplace-schemas.js";
 import {
   artistReleasesResponseSchema,
   artistSchema,
@@ -112,6 +118,38 @@ export class DiscogsClient {
     this.#request = options.request ?? {};
     this.#token = options.token;
     this.#userAgent = options.userAgent;
+  }
+
+  async getMarketplaceStats(id: number, currency?: MarketplaceCurrency) {
+    return await this.#getParsed(
+      this.#parametersUrl(`/marketplace/stats/${String(id)}`, {
+        curr_abbr: currency,
+      }),
+      marketplaceStatsSchema,
+      "marketplace statistics",
+    );
+  }
+
+  async getMarketplaceListing(id: number, currency?: MarketplaceCurrency) {
+    return await this.#getParsed(
+      this.#parametersUrl(`/marketplace/listings/${String(id)}`, {
+        curr_abbr: currency,
+      }),
+      marketplaceListingSchema,
+      "a marketplace listing",
+    );
+  }
+
+  async getMarketplaceFee(price: string, currency?: MarketplaceCurrency) {
+    const suffix = currency === undefined ? "" : `/${currency}`;
+    return await this.#getParsed(
+      new URL(
+        `/marketplace/fee/${encodeURIComponent(price)}${suffix}`,
+        this.#baseUrl,
+      ),
+      moneySchema,
+      "a marketplace fee",
+    );
   }
 
   async getRelease(id: number): Promise<DiscogsRelease> {
@@ -453,7 +491,7 @@ export class DiscogsClient {
       if (!(cause instanceof z.ZodError)) throw cause;
       throw new AppError({
         kind: "upstream",
-        code: "CRATEFLOW_RESPONSE_SCHEMA_MISMATCH",
+        code: "GROOVECTL_RESPONSE_SCHEMA_MISMATCH",
         message: `Discogs returned ${description} in an unsupported format.`,
         cause,
       });
@@ -552,7 +590,7 @@ export class DiscogsClient {
     if (url.origin !== this.#baseUrl.origin) {
       throw new AppError({
         kind: "upstream",
-        code: "CRATEFLOW_UNSAFE_PAGINATION_URL",
+        code: "GROOVECTL_UNSAFE_PAGINATION_URL",
         message: "Discogs returned a pagination URL for an unexpected host.",
       });
     }

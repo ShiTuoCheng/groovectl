@@ -43,7 +43,7 @@ export function outputFormat(options: RecordOptions): OutputFormat {
   if (options.json === true && options.format !== "table") {
     throw new AppError({
       kind: "usage",
-      code: "CRATEFLOW_OUTPUT_CONFLICT",
+      code: "GROOVECTL_OUTPUT_CONFLICT",
       message: "--json cannot be combined with --format.",
     });
   }
@@ -55,14 +55,14 @@ export function validateListOptions(options: ListOptions): void {
   if (options.perPage > 100) {
     throw new AppError({
       kind: "usage",
-      code: "CRATEFLOW_INVALID_PAGE_SIZE",
+      code: "GROOVECTL_INVALID_PAGE_SIZE",
       message: "--per-page cannot exceed 100.",
     });
   }
   if (options.all === true && options.page !== undefined) {
     throw new AppError({
       kind: "usage",
-      code: "CRATEFLOW_PAGINATION_CONFLICT",
+      code: "GROOVECTL_PAGINATION_CONFLICT",
       message: "--all cannot be combined with --page.",
     });
   }

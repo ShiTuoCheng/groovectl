@@ -1,6 +1,6 @@
 import { Command } from "commander";
 
-import { configSchema, type CrateflowConfig } from "../../config/schema.js";
+import { configSchema, type GroovectlConfig } from "../../config/schema.js";
 import { AppError } from "../../errors/app-error.js";
 import type { CliRuntime } from "../runtime.js";
 import type { CliIo } from "../run-cli.js";
@@ -16,7 +16,7 @@ type ConfigKey = (typeof keys)[number];
 
 export function createConfigCommand(io: CliIo, runtime: CliRuntime): Command {
   const config = new Command("config").description(
-    "Read or update local Crateflow settings (tokens are never stored here).",
+    "Read or update local Groovectl settings (tokens are never stored here).",
   );
 
   config
@@ -57,18 +57,18 @@ export function createConfigCommand(io: CliIo, runtime: CliRuntime): Command {
 function invalidKey(key: string): AppError {
   return new AppError({
     kind: "usage",
-    code: "CRATEFLOW_CONFIG_KEY_INVALID",
+    code: "GROOVECTL_CONFIG_KEY_INVALID",
     message: `Unknown configuration key: ${key}.`,
   });
 }
 
-function parseValue(key: ConfigKey, value: string): CrateflowConfig[ConfigKey] {
+function parseValue(key: ConfigKey, value: string): GroovectlConfig[ConfigKey] {
   if (key === "timeoutMs" || key === "maxRateLimitWaitMs") {
     const parsed = Number(value);
     if (!Number.isSafeInteger(parsed)) {
       throw new AppError({
         kind: "usage",
-        code: "CRATEFLOW_CONFIG_VALUE_INVALID",
+        code: "GROOVECTL_CONFIG_VALUE_INVALID",
         message: `${key} must be an integer.`,
       });
     }

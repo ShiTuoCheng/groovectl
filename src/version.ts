@@ -23,8 +23,12 @@ export interface BuildInfo {
 export function buildInfo(): BuildInfo {
   return {
     version: packageVersion,
-    commit: process.env.CRATEFLOW_COMMIT ?? null,
-    buildDate: process.env.CRATEFLOW_BUILD_DATE ?? null,
+    commit:
+      process.env.GROOVECTL_COMMIT ?? process.env.CRATEFLOW_COMMIT ?? null,
+    buildDate:
+      process.env.GROOVECTL_BUILD_DATE ??
+      process.env.CRATEFLOW_BUILD_DATE ??
+      null,
     nodeVersion: process.version,
     platform: process.platform,
     arch: process.arch,

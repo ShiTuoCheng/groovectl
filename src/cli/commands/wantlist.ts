@@ -6,7 +6,11 @@ import type {
   WantlistItem,
 } from "../../domain/user-resource.js";
 import { AppError } from "../../errors/app-error.js";
-import { renderRecord, renderRecords } from "../../output/records.js";
+import {
+  renderRecord,
+  renderRecords,
+  validateOutputFields,
+} from "../../output/records.js";
 import { positiveInteger, rating } from "../create-program.js";
 import { confirmDestructiveAction } from "../confirmation.js";
 import { fieldsFor, tokenRequestFor } from "../global-options.js";
@@ -87,27 +91,33 @@ export function createWantlistCommand(io: CliIo, runtime: CliRuntime): Command {
         },
         command: Command,
       ) => {
+        const format = await runtime.formatFor(
+          command,
+          outputFormat(options),
+          options.json,
+        );
+        const fields = fieldsFor(command);
+        validateOutputFields(
+          options.dryRun === true ? mutationColumns : itemColumns,
+          fields,
+        );
         const { service, username } = await context(runtime, command);
         if (options.dryRun === true) {
           renderRecord(
             result("wantlist.add", username, releaseId, options),
-            await runtime.formatFor(
-              command,
-              outputFormat(options),
-              options.json,
-            ),
+            format,
             mutationColumns,
             io.stdout,
-            fieldsFor(command),
+            fields,
           );
           return;
         }
         renderRecord(
           await service.add(username, releaseId, update(options)),
-          await runtime.formatFor(command, outputFormat(options), options.json),
+          format,
           itemColumns,
           io.stdout,
-          fieldsFor(command),
+          fields,
         );
       },
     );
@@ -134,30 +144,36 @@ export function createWantlistCommand(io: CliIo, runtime: CliRuntime): Command {
         if (options.rating === undefined && options.notes === undefined)
           throw new AppError({
             kind: "usage",
-            code: "CRATEFLOW_USAGE",
+            code: "GROOVECTL_USAGE",
             message: "Provide --rating and/or --notes.",
           });
+        const format = await runtime.formatFor(
+          command,
+          outputFormat(options),
+          options.json,
+        );
+        const fields = fieldsFor(command);
+        validateOutputFields(
+          options.dryRun === true ? mutationColumns : itemColumns,
+          fields,
+        );
         const { service, username } = await context(runtime, command);
         if (options.dryRun === true) {
           renderRecord(
             result("wantlist.update", username, releaseId, options),
-            await runtime.formatFor(
-              command,
-              outputFormat(options),
-              options.json,
-            ),
+            format,
             mutationColumns,
             io.stdout,
-            fieldsFor(command),
+            fields,
           );
           return;
         }
         renderRecord(
           await service.update(username, releaseId, update(options)),
-          await runtime.formatFor(command, outputFormat(options), options.json),
+          format,
           itemColumns,
           io.stdout,
-          fieldsFor(command),
+          fields,
         );
       },
     );
@@ -176,6 +192,13 @@ export function createWantlistCommand(io: CliIo, runtime: CliRuntime): Command {
         options: RecordOptions & { yes?: boolean; dryRun?: boolean },
         command: Command,
       ) => {
+        const format = await runtime.formatFor(
+          command,
+          outputFormat(options),
+          options.json,
+        );
+        const fields = fieldsFor(command);
+        validateOutputFields(mutationColumns, fields);
         const { service, username } = await context(runtime, command);
         const mutation = result(
           "wantlist.remove",
@@ -191,13 +214,7 @@ export function createWantlistCommand(io: CliIo, runtime: CliRuntime): Command {
           );
           await service.remove(username, releaseId);
         }
-        renderRecord(
-          mutation,
-          await runtime.formatFor(command, outputFormat(options), options.json),
-          mutationColumns,
-          io.stdout,
-          fieldsFor(command),
-        );
+        renderRecord(mutation, format, mutationColumns, io.stdout, fields);
       },
     );
   return wantlist;

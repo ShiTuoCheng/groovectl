@@ -1,13 +1,41 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const packDirectory = mkdtempSync(join(tmpdir(), "crateflow-pack-"));
-const installDirectory = mkdtempSync(join(tmpdir(), "crateflow-install-"));
+const packDirectory = mkdtempSync(join(tmpdir(), "groovectl-pack-"));
+const installDirectory = mkdtempSync(join(tmpdir(), "groovectl-install-"));
+const metadata = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+);
+
+// Windows package managers and bin shims are .cmd files, not native executables.
+// Explicit cmd.exe invocation also handles installation directories with spaces.
+function run(command, args, options) {
+  if (process.platform !== "win32") return execFileSync(command, args, options);
+  const parts = [command, ...args].map((value) => {
+    if (/["%\r\n]/u.test(value))
+      throw new Error("Unsupported Windows command argument");
+    return `"${value}"`;
+  });
+  return execFileSync(
+    process.env.ComSpec ?? "cmd.exe",
+    ["/d", "/v:off", "/s", "/c", `"${parts.join(" ")}"`],
+    {
+      ...options,
+      windowsVerbatimArguments: true,
+    },
+  );
+}
 
 try {
-  execFileSync("pnpm", ["pack", "--pack-destination", packDirectory], {
+  run("pnpm", ["pack", "--pack-destination", packDirectory], {
     stdio: "inherit",
   });
   const tarball = readdirSync(packDirectory).find((name) =>
@@ -16,7 +44,7 @@ try {
   if (tarball === undefined)
     throw new Error("pnpm pack did not create a tarball");
   writeFileSync(join(installDirectory, "package.json"), '{"private":true}\n');
-  execFileSync(
+  run(
     "npm",
     ["install", "--ignore-scripts=false", join(packDirectory, tarball)],
     {
@@ -25,15 +53,24 @@ try {
     },
   );
   const executable =
-    process.platform === "win32" ? "crateflow.cmd" : "crateflow";
-  const output = execFileSync(
+    process.platform === "win32" ? "groovectl.cmd" : "groovectl";
+  const output = run(
     join(installDirectory, "node_modules", ".bin", executable),
     ["version", "--json"],
     { encoding: "utf8" },
   );
   const version = JSON.parse(output);
-  if (version.version !== "0.0.0-development")
+  if (version.version !== metadata.version)
     throw new Error("installed CLI returned an unexpected version");
+  const help = run(
+    join(installDirectory, "node_modules", ".bin", executable),
+    ["--help"],
+    { encoding: "utf8" },
+  );
+  if (!help.includes("Usage: groovectl ") || !help.includes("marketplace"))
+    throw new Error(
+      "installed CLI did not expose the expected command name and commands",
+    );
   process.stdout.write("Pack/install smoke test passed.\n");
 } finally {
   rmSync(packDirectory, { recursive: true, force: true });

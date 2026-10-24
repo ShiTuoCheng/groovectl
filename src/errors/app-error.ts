@@ -39,9 +39,16 @@ export function asAppError(error: unknown): AppError {
   if (error instanceof AppError) {
     return error;
   }
+  if (error instanceof Error && error.name === "ExitPromptError") {
+    return new AppError({
+      kind: "cancelled",
+      code: "GROOVECTL_CANCELLED",
+      message: "The prompt was cancelled.",
+    });
+  }
   return new AppError({
     kind: "upstream",
-    code: "CRATEFLOW_UNEXPECTED",
+    code: "GROOVECTL_UNEXPECTED",
     message: "An unexpected error occurred.",
     cause: error,
   });

@@ -32,12 +32,12 @@ describe("DiscogsClient", () => {
       expect(request.headers.accept).toBe(
         "application/vnd.discogs.v2.discogs+json",
       );
-      expect(request.headers["user-agent"]).toBe("Crateflow/test");
+      expect(request.headers["user-agent"]).toBe("Groovectl/test");
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify({ id: 42, title: "Test" }));
     });
 
-    const client = new DiscogsClient({ baseUrl, userAgent: "Crateflow/test" });
+    const client = new DiscogsClient({ baseUrl, userAgent: "Groovectl/test" });
     await expect(client.getRelease(42)).resolves.toMatchObject({
       id: 42,
       title: "Test",
@@ -49,24 +49,24 @@ describe("DiscogsClient", () => {
       response.writeHead(404).end();
     });
 
-    const client = new DiscogsClient({ baseUrl, userAgent: "Crateflow/test" });
+    const client = new DiscogsClient({ baseUrl, userAgent: "Groovectl/test" });
     await expect(client.getRelease(404)).rejects.toMatchObject<
       Partial<AppError>
     >({
-      code: "CRATEFLOW_NOT_FOUND",
+      code: "GROOVECTL_NOT_FOUND",
       kind: "not_found",
       httpStatus: 404,
     });
   });
 
   it.each([
-    [401, "CRATEFLOW_AUTH_INVALID", "auth_invalid"],
-    [403, "CRATEFLOW_FORBIDDEN", "forbidden"],
-    [405, "CRATEFLOW_METHOD_NOT_ALLOWED", "usage"],
-    [422, "CRATEFLOW_VALIDATION_FAILED", "validation"],
-    [429, "CRATEFLOW_RATE_LIMITED", "rate_limited"],
-    [500, "CRATEFLOW_DISCOGS_ERROR", "upstream"],
-    [503, "CRATEFLOW_DISCOGS_ERROR", "upstream"],
+    [401, "GROOVECTL_AUTH_INVALID", "auth_invalid"],
+    [403, "GROOVECTL_FORBIDDEN", "forbidden"],
+    [405, "GROOVECTL_METHOD_NOT_ALLOWED", "usage"],
+    [422, "GROOVECTL_VALIDATION_FAILED", "validation"],
+    [429, "GROOVECTL_RATE_LIMITED", "rate_limited"],
+    [500, "GROOVECTL_DISCOGS_ERROR", "upstream"],
+    [503, "GROOVECTL_DISCOGS_ERROR", "upstream"],
   ] as const)(
     "maps HTTP %i to %s",
     async (status, expectedCode, expectedKind) => {
@@ -75,7 +75,7 @@ describe("DiscogsClient", () => {
       });
       const client = new DiscogsClient({
         baseUrl,
-        userAgent: "Crateflow/test",
+        userAgent: "Groovectl/test",
       });
       await expect(client.getRelease(1)).rejects.toMatchObject<
         Partial<AppError>
@@ -92,10 +92,10 @@ describe("DiscogsClient", () => {
       response.writeHead(200, { "content-type": "application/json" });
       response.end("not-json");
     });
-    const client = new DiscogsClient({ baseUrl, userAgent: "Crateflow/test" });
+    const client = new DiscogsClient({ baseUrl, userAgent: "Groovectl/test" });
     await expect(client.getRelease(1)).rejects.toMatchObject<Partial<AppError>>(
       {
-        code: "CRATEFLOW_INVALID_RESPONSE",
+        code: "GROOVECTL_INVALID_RESPONSE",
         kind: "upstream",
       },
     );
@@ -106,10 +106,10 @@ describe("DiscogsClient", () => {
       response.writeHead(200, { "content-type": "application/json" });
       response.end("{}");
     });
-    const client = new DiscogsClient({ baseUrl, userAgent: "Crateflow/test" });
+    const client = new DiscogsClient({ baseUrl, userAgent: "Groovectl/test" });
     await expect(client.getRelease(1)).rejects.toMatchObject<Partial<AppError>>(
       {
-        code: "CRATEFLOW_RESPONSE_SCHEMA_MISMATCH",
+        code: "GROOVECTL_RESPONSE_SCHEMA_MISMATCH",
         kind: "upstream",
       },
     );
@@ -117,12 +117,12 @@ describe("DiscogsClient", () => {
 
   it("maps transport failures without leaking the original error", async () => {
     const client = new DiscogsClient({
-      userAgent: "Crateflow/test",
+      userAgent: "Groovectl/test",
       fetch: () => Promise.reject(new Error("socket details")),
     });
     await expect(client.getRelease(1)).rejects.toMatchObject<Partial<AppError>>(
       {
-        code: "CRATEFLOW_NETWORK_ERROR",
+        code: "GROOVECTL_NETWORK_ERROR",
         kind: "network",
         message: "The request to Discogs failed.",
       },
@@ -139,13 +139,13 @@ describe("DiscogsClient", () => {
           id: 123,
           username: "fixture-user",
           resource_url: "https://api.discogs.com/users/fixture-user",
-          consumer_name: "Crateflow",
+          consumer_name: "Groovectl",
         }),
       );
     });
     const client = new DiscogsClient({
       baseUrl,
-      userAgent: "Crateflow/test",
+      userAgent: "Groovectl/test",
       token: "test-token",
     });
     await expect(client.getIdentity()).resolves.toMatchObject({
@@ -180,7 +180,7 @@ describe("DiscogsClient", () => {
     }));
     const client = new DiscogsClient({
       baseUrl,
-      userAgent: "Crateflow/test",
+      userAgent: "Groovectl/test",
       token: "test-token",
     });
     await expect(
@@ -224,7 +224,7 @@ describe("DiscogsClient", () => {
         }),
       );
     });
-    const client = new DiscogsClient({ baseUrl, userAgent: "Crateflow/test" });
+    const client = new DiscogsClient({ baseUrl, userAgent: "Groovectl/test" });
     await expect(client.getMaster(1)).resolves.toMatchObject({
       id: 1,
       main_release: 2,
@@ -267,7 +267,7 @@ describe("DiscogsClient", () => {
         }),
       );
     }));
-    const client = new DiscogsClient({ baseUrl, userAgent: "Crateflow/test" });
+    const client = new DiscogsClient({ baseUrl, userAgent: "Groovectl/test" });
     const ids: number[] = [];
     for await (const version of client.getMasterVersionsAll(1, {
       per_page: 1,
@@ -300,7 +300,7 @@ describe("DiscogsClient", () => {
         }),
       );
     });
-    const client = new DiscogsClient({ baseUrl, userAgent: "Crateflow/test" });
+    const client = new DiscogsClient({ baseUrl, userAgent: "Groovectl/test" });
     const consume = async (): Promise<void> => {
       for await (const value of client.getLabelReleasesAll(1)) {
         // Consume the first page so pagination validation runs.
@@ -308,7 +308,7 @@ describe("DiscogsClient", () => {
       }
     };
     await expect(consume()).rejects.toMatchObject({
-      code: "CRATEFLOW_UNSAFE_PAGINATION_URL",
+      code: "GROOVECTL_UNSAFE_PAGINATION_URL",
     });
   });
 
@@ -339,7 +339,7 @@ describe("DiscogsClient", () => {
     });
     const client = new DiscogsClient({
       baseUrl,
-      userAgent: "Crateflow/test",
+      userAgent: "Groovectl/test",
       token: "test-token",
     });
     await expect(client.addToCollection("a user", 1, 7)).resolves.toMatchObject(
@@ -383,7 +383,7 @@ describe("DiscogsClient", () => {
     });
     const client = new DiscogsClient({
       baseUrl,
-      userAgent: "Crateflow/test",
+      userAgent: "Groovectl/test",
       token: "test-token",
     });
     await client.addToWantlist("fixture-user", 7, { rating: 4, notes: "find" });

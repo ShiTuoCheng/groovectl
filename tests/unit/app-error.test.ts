@@ -21,6 +21,15 @@ describe("exitCodeForError", () => {
     expect(exitCodeForError(error)).toBe(expected);
   });
 
+  it("treats an interrupted interactive prompt as cancellation", () => {
+    const interrupted = new Error("private prompt details");
+    interrupted.name = "ExitPromptError";
+    const error = asAppError(interrupted);
+    expect(error.code).toBe("GROOVECTL_CANCELLED");
+    expect(exitCodeForError(error)).toBe(10);
+    expect(error.message).not.toContain("private prompt details");
+  });
+
   it("preserves known errors and sanitizes unknown errors", () => {
     const known = new AppError({
       kind: "network",
@@ -29,7 +38,7 @@ describe("exitCodeForError", () => {
     });
     expect(asAppError(known)).toBe(known);
     expect(asAppError(new Error("secret detail"))).toMatchObject({
-      code: "CRATEFLOW_UNEXPECTED",
+      code: "GROOVECTL_UNEXPECTED",
       message: "An unexpected error occurred.",
     });
   });

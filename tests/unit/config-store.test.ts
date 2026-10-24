@@ -18,7 +18,7 @@ afterEach(
 
 describe("ConfigStore", () => {
   it("writes validated configuration atomically without token fields", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "crateflow-config-"));
+    const directory = await mkdtemp(join(tmpdir(), "groovectl-config-"));
     directories.push(directory);
     const path = join(directory, "nested", "config.json");
     const store = new ConfigStore(path);

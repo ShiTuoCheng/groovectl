@@ -45,7 +45,7 @@ export function createReleaseCommand(io: CliIo, runtime: CliRuntime): Command {
         if (options.json === true && options.format !== "table") {
           throw new AppError({
             kind: "usage",
-            code: "CRATEFLOW_OUTPUT_CONFLICT",
+            code: "GROOVECTL_OUTPUT_CONFLICT",
             message: "--json cannot be combined with --format.",
           });
         }

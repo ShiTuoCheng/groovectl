@@ -10,7 +10,7 @@ export async function confirmDestructiveAction(
   if (!runtime.interactive) {
     throw new AppError({
       kind: "cancelled",
-      code: "CRATEFLOW_CONFIRMATION_REQUIRED",
+      code: "GROOVECTL_CONFIRMATION_REQUIRED",
       message: "This destructive operation requires confirmation.",
       remediation:
         "Run interactively or pass --yes after reviewing the target.",
@@ -19,7 +19,7 @@ export async function confirmDestructiveAction(
   if (!(await runtime.confirm(message))) {
     throw new AppError({
       kind: "cancelled",
-      code: "CRATEFLOW_CANCELLED",
+      code: "GROOVECTL_CANCELLED",
       message: "Operation cancelled.",
     });
   }
