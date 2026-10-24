@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
+  existsSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -7,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, isAbsolute, join } from "node:path";
 
 const packDirectory = mkdtempSync(join(tmpdir(), "groovectl-pack-"));
 const installDirectory = mkdtempSync(join(tmpdir(), "groovectl-install-"));
@@ -19,7 +20,23 @@ const metadata = JSON.parse(
 // Explicit cmd.exe invocation also handles installation directories with spaces.
 function run(command, args, options) {
   if (process.platform !== "win32") return execFileSync(command, args, options);
-  const parts = [command, ...args].map((value) => {
+  // Bare quoted .cmd names can give wrappers the working directory as %~dp0.
+  // Resolve PATH first so pnpm/npm wrappers locate their own JS entry points.
+  const executable = isAbsolute(command)
+    ? command
+    : (process.env.PATH ?? "")
+        .split(delimiter)
+        .flatMap((directory) =>
+          (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD")
+            .split(";")
+            .map((extension) =>
+              join(directory.replace(/^"|"$/gu, ""), `${command}${extension}`),
+            ),
+        )
+        .find((candidate) => existsSync(candidate));
+  if (executable === undefined)
+    throw new Error(`Executable not found on PATH: ${command}`);
+  const parts = [executable, ...args].map((value) => {
     if (/["%\r\n]/u.test(value))
       throw new Error("Unsupported Windows command argument");
     return `"${value}"`;
