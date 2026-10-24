@@ -1,9 +1,28 @@
 {
   "name": "groovectl",
-  "version": "0.1.0",
-  "description": "A script-friendly CLI for the Discogs API.",
-  "private": true,
+  "version": "0.1.1",
+  "description": "A script-friendly Discogs CLI for exploring releases, managing your collection and wantlist, and reading Marketplace data.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ShiTuoCheng/groovectl.git"
+  },
+  "homepage": "https://github.com/ShiTuoCheng/groovectl#readme",
+  "bugs": {
+    "url": "https://github.com/ShiTuoCheng/groovectl/issues"
+  },
+  "keywords": [
+    "discogs",
+    "cli",
+    "vinyl",
+    "collection",
+    "wantlist",
+    "marketplace"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "type": "module",
   "bin": {
     "groovectl": "dist/bin/groovectl.js"
@@ -13,6 +32,7 @@
     "LICENSE",
     "NOTICE",
     "README.md",
+    "CHANGELOG.md",
     "SECURITY.md"
   ],
   "engines": {
@@ -26,6 +46,8 @@
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "prepack": "pnpm clean && pnpm build",
+    "prepublishOnly": "pnpm release:check",
+    "release:check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm audit --prod --audit-level high",
     "start": "node dist/bin/groovectl.js",
     "test": "pnpm build && vitest run",
     "test:coverage": "pnpm build && vitest run --coverage",

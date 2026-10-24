@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.1 — 2026-10-24
+
+- Prepare the first public npm distribution under the `groovectl` command.
+- Add repository links, public-registry publishing configuration, and release
+  checks.
+- Document npm installation, one-off execution, upgrades, and uninstallation.
+- Include the changelog in the published package.
+- Enforce LF checkouts on Windows so formatting checks agree across platforms.
+- Resolve Windows package-manager shims to absolute paths during installation
+  tests.
+
 ## 0.1.0 — 2026-10-24
 
 First local release of Groovectl for Discogs (formerly Crateflow).

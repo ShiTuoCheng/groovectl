@@ -1,13 +1,42 @@
 # Groovectl for Discogs
 
-Groovectl is a local-first, script-friendly command-line interface for the
-official Discogs API. The MVP focuses on Database, Collection, and Wantlist
-workflows.
+A script-friendly Discogs CLI for exploring releases, managing your collection
+and wantlist, and reading Marketplace data.
 
 > This application uses Discogs' API but is not affiliated with, sponsored or
 > endorsed by Discogs. "Discogs" is a trademark of Zink Media, LLC.
 
-## Install from a local checkout
+## Installation
+
+Requires Node.js 24 or newer and npm. End users do not need pnpm, TypeScript, or
+a source checkout.
+
+```sh
+npm install --global groovectl
+groovectl --help
+groovectl version --json
+groovectl release get 249504 --json
+```
+
+For a one-off invocation without a global installation:
+
+```sh
+npm exec --package=groovectl -- groovectl --help
+```
+
+Upgrade or uninstall:
+
+```sh
+npm install --global groovectl@latest
+npm uninstall --global groovectl
+```
+
+Global commands must be on PATH. If npm reports a permissions error, use a
+user-owned Node.js installation rather than changing system directory
+permissions. Discogs authentication is separate from npm installation; use
+`groovectl --token auth login` when you want to save a Discogs User Token.
+
+## Local development
 
 Requirements: Node.js 24 LTS and pnpm 10.
 
@@ -25,10 +54,8 @@ Run the installation commands in the project directory. After installation,
 directory is on PATH. This local installation links to the checkout, so rebuild
 with `pnpm build` after changing source code and keep the checkout in place.
 
-The package is not published to npm yet and remains marked private. Do not use
-`npm install -g groovectl` from the registry until this project's public package
-has been confirmed and published. A built tarball can also be installed with
-`npm install -g /path/to/groovectl-0.1.0.tgz`; recipients need Node.js 24+, but
+A built tarball can also be installed with
+`npm install -g /path/to/groovectl-0.1.1.tgz`; recipients need Node.js 24+, but
 do not need pnpm or a TypeScript compiler.
 
 For local development without installing, use `pnpm start -- --help` or
@@ -67,10 +94,11 @@ unchanged. Error prefixes now use `GROOVECTL_`; scripts matching the old
 - `groovectl marketplace fee <price> [--currency <code>]`
 
 Resource commands support `--format table|json|jsonl|tsv` and `--json` as a
-shortcut. List commands support `--page`, `--per-page`, and `--all`. Use the
-global `--fields id,title,...` option to select and order output fields. JSONL
-streams one record per line; JSON arrays are capped at 10,000 records to avoid
-unbounded memory use.
+shortcut. Search uses `--output` for output format because its `--format` flag
+filters the release medium (for example Vinyl). List commands support `--page`,
+`--per-page`, and `--all`. Use the global `--fields id,title,...` option to
+select and order output fields. JSONL streams one record per line; JSON arrays
+are capped at 10,000 records to avoid unbounded memory use.
 
 ## Collection and Wantlist
 
@@ -211,6 +239,28 @@ cancelled/confirmation-required `10`.
 ## Security
 
 Do not report vulnerabilities in public issues. See [SECURITY.md](SECURITY.md).
+
+## Publishing
+
+Maintainers need Node.js 24+, pnpm 10, and npm publishing access to `groovectl`.
+The package name and version in `package.json` must match the release tag.
+
+1. Update the version and changelog, commit the release, and wait for all three
+   platform CI jobs to pass for that exact commit.
+2. Run `pnpm release:check` and `pnpm verify:package` from a clean checkout.
+3. Authenticate with `npm login --registry=https://registry.npmjs.org` if
+   needed.
+4. Run `npm publish --dry-run`, inspect the payload, then `npm publish`.
+   Publishing runs the release checks and builds the distributable
+   automatically.
+5. Verify the published version using `npm view groovectl version`, install it
+   into an isolated directory, and exercise `groovectl version --json` and help.
+6. Create the matching `vX.Y.Z` tag only after the registry publish succeeds.
+
+The existing GitHub workflow validates changes; it does not publish packages.
+The first npm publication uses interactive npm authentication. Future automated
+publishing can use npm Trusted Publishing with a specifically authorized GitHub
+workflow, without storing a long-lived npm publishing token.
 
 ## License
 

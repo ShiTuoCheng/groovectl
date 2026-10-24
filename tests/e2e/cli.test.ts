@@ -32,7 +32,7 @@ describe("groovectl CLI", () => {
         ["version", "--json"],
       );
       expect(stderr).toBe("");
-      expect(JSON.parse(stdout)).toMatchObject({ version: "0.1.0" });
+      expect(JSON.parse(stdout)).toMatchObject({ version: "0.1.1" });
     },
   );
 
@@ -107,7 +107,7 @@ describe("groovectl CLI", () => {
     const result = await runCli(["version", "--json"]);
     expect(result.code).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
-      version: "0.1.0",
+      version: "0.1.1",
       platform: process.platform,
       arch: process.arch,
     });
