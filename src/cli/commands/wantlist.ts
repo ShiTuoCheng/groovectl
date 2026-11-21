@@ -1,4 +1,4 @@
-import { Command } from "commander";
+import { Command, InvalidArgumentError } from "commander";
 
 import { WantlistService } from "../../app/wantlist-service.js";
 import type {
@@ -32,6 +32,11 @@ const itemColumns = [
   { key: "artists", value: (item: WantlistItem) => item.artists },
   { key: "year", value: (item: WantlistItem) => item.year },
   { key: "formats", value: (item: WantlistItem) => item.formats },
+  { key: "labels", value: (item: WantlistItem) => item.labels },
+  {
+    key: "catalogNumbers",
+    value: (item: WantlistItem) => item.catalogNumbers,
+  },
   { key: "rating", value: (item: WantlistItem) => item.rating },
   { key: "notes", value: (item: WantlistItem) => item.notes },
 ] as const;
@@ -51,26 +56,46 @@ export function createWantlistCommand(io: CliIo, runtime: CliRuntime): Command {
 
   addListOptions(
     wantlist.command("list").description("List wantlist releases."),
-  ).action(async (options: ListOptions, command: Command) => {
-    validateListOptions(options);
-    const { service, username } = await context(runtime, command);
-    const values =
-      options.all === true
-        ? service.listAll(username, { per_page: options.perPage })
-        : asAsync(
-            await service.list(username, {
-              per_page: options.perPage,
-              ...(options.page === undefined ? {} : { page: options.page }),
-            }),
-          );
-    await renderRecords(
-      values,
-      await runtime.formatFor(command, outputFormat(options), options.json),
-      itemColumns,
-      io.stdout,
-      fieldsFor(command),
+  )
+    .option(
+      "--query <text>",
+      "Filter read items locally by title, artist, label, catalog number, or notes.",
+      nonEmptyQuery,
+    )
+    .action(
+      async (options: ListOptions & { query?: string }, command: Command) => {
+        validateListOptions(options, command);
+        const fields = fieldsFor(command);
+        validateOutputFields(itemColumns, fields);
+        const format = await runtime.formatFor(
+          command,
+          outputFormat(options, command),
+          options.json,
+        );
+        const { service, username } = await context(runtime, command);
+        const rawValues =
+          options.all === true
+            ? service.listAll(username, { per_page: options.perPage })
+            : asAsync(
+                await service.list(username, {
+                  per_page: options.perPage,
+                  ...(options.page === undefined ? {} : { page: options.page }),
+                }),
+              );
+        const values =
+          options.query === undefined
+            ? rawValues
+            : filterWantlistItems(rawValues, options.query);
+        await renderRecords(
+          values,
+          format,
+          itemColumns,
+          io.stdout,
+          fields,
+          options.limit,
+        );
+      },
     );
-  });
 
   addOutputOptions(
     wantlist
@@ -93,7 +118,7 @@ export function createWantlistCommand(io: CliIo, runtime: CliRuntime): Command {
       ) => {
         const format = await runtime.formatFor(
           command,
-          outputFormat(options),
+          outputFormat(options, command),
           options.json,
         );
         const fields = fieldsFor(command);
@@ -149,7 +174,7 @@ export function createWantlistCommand(io: CliIo, runtime: CliRuntime): Command {
           });
         const format = await runtime.formatFor(
           command,
-          outputFormat(options),
+          outputFormat(options, command),
           options.json,
         );
         const fields = fieldsFor(command);
@@ -194,7 +219,7 @@ export function createWantlistCommand(io: CliIo, runtime: CliRuntime): Command {
       ) => {
         const format = await runtime.formatFor(
           command,
-          outputFormat(options),
+          outputFormat(options, command),
           options.json,
         );
         const fields = fieldsFor(command);
@@ -253,4 +278,31 @@ function result(
     ...update(options),
     dryRun: options.dryRun === true,
   };
+}
+
+function nonEmptyQuery(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    throw new InvalidArgumentError("expected a non-empty query");
+  }
+  return trimmed;
+}
+
+async function* filterWantlistItems(
+  items: AsyncIterable<WantlistItem>,
+  query: string,
+): AsyncGenerator<WantlistItem> {
+  const needle = query.toLowerCase();
+  for await (const item of items) {
+    const haystack = [
+      item.title,
+      ...item.artists,
+      ...item.labels,
+      ...item.catalogNumbers,
+      item.notes ?? "",
+    ]
+      .join(" ")
+      .toLowerCase();
+    if (haystack.includes(needle)) yield item;
+  }
 }

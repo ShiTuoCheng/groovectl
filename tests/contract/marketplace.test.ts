@@ -99,6 +99,31 @@ describe("Marketplace API contract", () => {
     });
   });
 
+  it("accepts an empty shipping quote as unknown rather than rejecting the listing", async () => {
+    const { service } = fixtureService({
+      ...listingFixture,
+      shipping_price: {},
+    });
+    await expect(service.getListing(42)).resolves.toMatchObject({
+      id: 42,
+      price: { value: 12.5, currency: "EUR" },
+      shippingPrice: null,
+    });
+  });
+
+  it.each([{ value: 3 }, { currency: "EUR" }, { unexpected: true }])(
+    "still rejects malformed nonempty shipping quotes: %j",
+    async (shipping) => {
+      const { service } = fixtureService({
+        ...listingFixture,
+        shipping_price: shipping,
+      });
+      await expect(service.getListing(42)).rejects.toMatchObject({
+        code: "GROOVECTL_RESPONSE_SCHEMA_MISMATCH",
+      });
+    },
+  );
+
   it.each([undefined, "GBP"] as const)(
     "uses the documented fee path with currency %s",
     async (currency) => {

@@ -1,5 +1,7 @@
-import type { OutputFormat, WritableOutput } from "./renderer.js";
 import { AppError } from "../errors/app-error.js";
+
+export type OutputFormat = "table" | "json" | "jsonl" | "tsv";
+export type WritableOutput = Pick<NodeJS.WriteStream, "write">;
 
 export interface Column<T> {
   key: string;
@@ -39,17 +41,36 @@ export function renderRecord<T extends object>(
   );
 }
 
+export async function* limitRecords<T>(
+  items: AsyncIterable<T>,
+  limit: number | undefined,
+): AsyncGenerator<T> {
+  if (limit === undefined) {
+    yield* items;
+    return;
+  }
+  let count = 0;
+  for await (const item of items) {
+    if (count >= limit) return;
+    yield item;
+    count += 1;
+    if (count >= limit) return;
+  }
+}
+
 export async function renderRecords<T extends object>(
   items: AsyncIterable<T>,
   format: OutputFormat,
   columns: readonly Column<T>[],
   output: WritableOutput,
   selectedFields?: readonly string[],
+  limit?: number,
 ): Promise<void> {
   const visibleColumns = selectColumns(columns, selectedFields);
+  const bounded = limitRecords(items, limit);
   if (format === "json") {
     const values: object[] = [];
-    for await (const item of items) {
+    for await (const item of bounded) {
       values.push(
         selectedFields === undefined ? item : project(item, visibleColumns),
       );
@@ -66,7 +87,7 @@ export async function renderRecords<T extends object>(
     return;
   }
   if (format === "jsonl") {
-    for await (const item of items) {
+    for await (const item of bounded) {
       output.write(
         `${JSON.stringify(selectedFields === undefined ? item : project(item, visibleColumns))}\n`,
       );
@@ -76,7 +97,7 @@ export async function renderRecords<T extends object>(
   output.write(
     `${visibleColumns.map((column) => (format === "tsv" ? column.key : (column.label ?? column.key).toUpperCase())).join("\t")}\n`,
   );
-  for await (const item of items) {
+  for await (const item of bounded) {
     output.write(
       `${visibleColumns.map((column) => escapeTsv(cell(column.value(item)))).join("\t")}\n`,
     );

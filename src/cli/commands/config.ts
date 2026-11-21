@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { z } from "zod";
 
 import { configSchema, type GroovectlConfig } from "../../config/schema.js";
 import { AppError } from "../../errors/app-error.js";
@@ -46,7 +47,18 @@ export function createConfigCommand(io: CliIo, runtime: CliRuntime): Command {
       if (!keys.includes(key)) throw invalidKey(key);
       const value = parseValue(key, rawValue);
       const current = await runtime.config.read();
-      const next = configSchema.parse({ ...current, [key]: value });
+      let next: GroovectlConfig;
+      try {
+        next = configSchema.parse({ ...current, [key]: value });
+      } catch (cause: unknown) {
+        if (!(cause instanceof z.ZodError)) throw cause;
+        throw new AppError({
+          kind: "usage",
+          code: "GROOVECTL_CONFIG_VALUE_INVALID",
+          message: `Invalid value for ${key}: ${rawValue}.`,
+          cause,
+        });
+      }
       await runtime.config.write(next);
       io.stdout.write(`${key}=${String(next[key])}\n`);
     });

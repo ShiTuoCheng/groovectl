@@ -1,8 +1,9 @@
-import { Command, Option } from "commander";
+import { Command, InvalidArgumentError, Option } from "commander";
 
 import { CollectionService } from "../../app/collection-service.js";
 import type {
   CollectionAddResult,
+  CollectionField,
   CollectionFolder,
   CollectionItem,
   CollectionValue,
@@ -39,6 +40,15 @@ const folderColumns = [
   { key: "count", value: (item: CollectionFolder) => item.count },
   { key: "resourceUrl", value: (item: CollectionFolder) => item.resourceUrl },
 ] as const;
+const fieldColumns = [
+  { key: "id", value: (item: CollectionField) => item.id },
+  { key: "name", value: (item: CollectionField) => item.name },
+  { key: "type", value: (item: CollectionField) => item.type },
+  { key: "position", value: (item: CollectionField) => item.position },
+  { key: "public", value: (item: CollectionField) => item.public },
+  { key: "lines", value: (item: CollectionField) => item.lines },
+  { key: "options", value: (item: CollectionField) => item.options },
+] as const;
 const itemColumns = [
   { key: "id", value: (item: CollectionItem) => item.id },
   { key: "instanceId", value: (item: CollectionItem) => item.instanceId },
@@ -47,8 +57,14 @@ const itemColumns = [
   { key: "artists", value: (item: CollectionItem) => item.artists },
   { key: "year", value: (item: CollectionItem) => item.year },
   { key: "formats", value: (item: CollectionItem) => item.formats },
+  { key: "labels", value: (item: CollectionItem) => item.labels },
+  {
+    key: "catalogNumbers",
+    value: (item: CollectionItem) => item.catalogNumbers,
+  },
   { key: "rating", value: (item: CollectionItem) => item.rating },
   { key: "dateAdded", value: (item: CollectionItem) => item.dateAdded },
+  { key: "notes", value: (item: CollectionItem) => item.notes },
 ] as const;
 const addColumns = [
   { key: "releaseId", value: (item: CollectionAddResult) => item.releaseId },
@@ -64,7 +80,10 @@ const mutationColumns = [
   { key: "username", value: (item: MutationResult) => item.username },
   { key: "releaseId", value: (item: MutationResult) => item.releaseId },
   { key: "folderId", value: (item: MutationResult) => item.folderId },
+  { key: "folderName", value: (item: MutationResult) => item.folderName },
   { key: "instanceId", value: (item: MutationResult) => item.instanceId },
+  { key: "fieldId", value: (item: MutationResult) => item.fieldId },
+  { key: "value", value: (item: MutationResult) => item.value },
   { key: "rating", value: (item: MutationResult) => item.rating },
   { key: "dryRun", value: (item: MutationResult) => item.dryRun },
 ] as const;
@@ -76,6 +95,7 @@ const valueColumns = [
 
 interface CollectionListOptions extends ListOptions {
   folder: number;
+  query?: string;
   sort?:
     | "label"
     | "artist"
@@ -99,15 +119,286 @@ export function createCollectionCommand(
   addOutputOptions(
     collection.command("folders").description("List collection folders."),
   ).action(async (options: RecordOptions, command: Command) => {
+    const requestedFormat = outputFormat(options, command);
+    const fields = fieldsFor(command);
+    validateOutputFields(folderColumns, fields);
+    const format = await runtime.formatFor(
+      command,
+      requestedFormat,
+      options.json,
+    );
     const { service, username } = await context(runtime, command);
     await renderRecords(
       asAsync(await service.folders(username)),
-      await runtime.formatFor(command, outputFormat(options), options.json),
+      format,
       folderColumns,
       io.stdout,
-      fieldsFor(command),
+      fields,
     );
   });
+
+  const folderCmd = collection
+    .command("folder")
+    .description("Read, create, rename, or delete custom collection folders.");
+
+  addOutputOptions(
+    folderCmd
+      .command("get")
+      .description("Get details for one collection folder.")
+      .argument("<folder-id>", "Collection folder ID", nonNegativeInteger),
+  ).action(
+    async (folderId: number, options: RecordOptions, command: Command) => {
+      const requestedFormat = outputFormat(options, command);
+      const fields = fieldsFor(command);
+      validateOutputFields(folderColumns, fields);
+      const format = await runtime.formatFor(
+        command,
+        requestedFormat,
+        options.json,
+      );
+      const { service, username } = await context(runtime, command);
+      renderRecord(
+        await service.getFolder(username, folderId),
+        format,
+        folderColumns,
+        io.stdout,
+        fields,
+      );
+    },
+  );
+
+  addOutputOptions(
+    folderCmd
+      .command("create")
+      .description("Create a new custom collection folder.")
+      .argument("<name>", "New folder name", nonEmptyText),
+  )
+    .option("--dry-run", "Show the intended change without writing.")
+    .action(
+      async (
+        name: string,
+        options: RecordOptions & { dryRun?: boolean },
+        command: Command,
+      ) => {
+        const format = await runtime.formatFor(
+          command,
+          outputFormat(options, command),
+          options.json,
+        );
+        const fields = fieldsFor(command);
+        const dryRun = options.dryRun === true;
+        validateOutputFields(dryRun ? mutationColumns : folderColumns, fields);
+        const { service, username } = await context(runtime, command);
+        if (dryRun) {
+          renderRecord(
+            {
+              action: "collection.folder.create",
+              username,
+              folderName: name,
+              dryRun: true,
+            },
+            format,
+            mutationColumns,
+            io.stdout,
+            fields,
+          );
+          return;
+        }
+        renderRecord(
+          await service.createFolder(username, name),
+          format,
+          folderColumns,
+          io.stdout,
+          fields,
+        );
+      },
+    );
+
+  addOutputOptions(
+    folderCmd
+      .command("rename")
+      .description("Rename a custom collection folder (folder ID >= 2).")
+      .argument("<folder-id>", "Custom folder ID (>= 2)", nonNegativeInteger)
+      .argument("<name>", "New folder name", nonEmptyText),
+  )
+    .option("--dry-run", "Show the intended change without writing.")
+    .action(
+      async (
+        folderId: number,
+        name: string,
+        options: RecordOptions & { dryRun?: boolean },
+        command: Command,
+      ) => {
+        if (folderId < 2) {
+          throw usage(
+            "Folders 0 and 1 are Discogs system folders and cannot be renamed.",
+          );
+        }
+        const format = await runtime.formatFor(
+          command,
+          outputFormat(options, command),
+          options.json,
+        );
+        const fields = fieldsFor(command);
+        const dryRun = options.dryRun === true;
+        validateOutputFields(dryRun ? mutationColumns : folderColumns, fields);
+        const { service, username } = await context(runtime, command);
+        if (dryRun) {
+          renderRecord(
+            {
+              action: "collection.folder.rename",
+              username,
+              folderId,
+              folderName: name,
+              dryRun: true,
+            },
+            format,
+            mutationColumns,
+            io.stdout,
+            fields,
+          );
+          return;
+        }
+        renderRecord(
+          await service.renameFolder(username, folderId, name),
+          format,
+          folderColumns,
+          io.stdout,
+          fields,
+        );
+      },
+    );
+
+  addOutputOptions(
+    folderCmd
+      .command("delete")
+      .description("Delete an empty custom collection folder (folder ID >= 2).")
+      .argument("<folder-id>", "Custom folder ID (>= 2)", nonNegativeInteger),
+  )
+    .option("--yes", "Skip the confirmation prompt.")
+    .option("--dry-run", "Show the intended change without writing.")
+    .action(
+      async (
+        folderId: number,
+        options: RecordOptions & { yes?: boolean; dryRun?: boolean },
+        command: Command,
+      ) => {
+        if (folderId < 2) {
+          throw usage(
+            "Folders 0 and 1 are Discogs system folders and cannot be deleted.",
+          );
+        }
+        const format = await runtime.formatFor(
+          command,
+          outputFormat(options, command),
+          options.json,
+        );
+        const fields = fieldsFor(command);
+        validateOutputFields(mutationColumns, fields);
+        const { service, username } = await context(runtime, command);
+        const result: MutationResult = {
+          action: "collection.folder.delete",
+          username,
+          folderId,
+          dryRun: options.dryRun === true,
+        };
+        if (options.dryRun !== true) {
+          await confirmDestructiveAction(
+            runtime,
+            options.yes === true,
+            `Delete collection folder ${String(folderId)}?`,
+          );
+          await service.deleteFolder(username, folderId);
+        }
+        renderRecord(result, format, mutationColumns, io.stdout, fields);
+      },
+    );
+
+  addOutputOptions(
+    collection
+      .command("fields")
+      .description(
+        "List custom collection fields (such as Media Condition, Sleeve Condition, Notes) and their IDs.",
+      ),
+  ).action(async (options: RecordOptions, command: Command) => {
+    const requestedFormat = outputFormat(options, command);
+    const fields = fieldsFor(command);
+    validateOutputFields(fieldColumns, fields);
+    const format = await runtime.formatFor(
+      command,
+      requestedFormat,
+      options.json,
+    );
+    const { service, username } = await context(runtime, command);
+    await renderRecords(
+      asAsync(await service.fields(username)),
+      format,
+      fieldColumns,
+      io.stdout,
+      fields,
+    );
+  });
+
+  const noteCmd = collection
+    .command("note")
+    .description(
+      "Manage custom field values and notes on collection instances.",
+    );
+
+  addOutputOptions(
+    noteCmd
+      .command("set")
+      .description(
+        "Set a custom field or note value on one collection instance (use `collection fields` to find field IDs).",
+      )
+      .argument("<folder-id>", "Current folder ID", nonNegativeInteger)
+      .argument("<release-id>", "Discogs release ID", positiveInteger)
+      .argument("<instance-id>", "Collection instance ID", positiveInteger)
+      .argument("<field-id>", "Custom field ID", positiveInteger)
+      .argument("<value>", "Field value (pass empty string to clear)"),
+  )
+    .option("--dry-run", "Show the intended change without writing.")
+    .action(
+      async (
+        folderId: number,
+        releaseId: number,
+        instanceId: number,
+        fieldId: number,
+        value: string,
+        options: RecordOptions & { dryRun?: boolean },
+        command: Command,
+      ) => {
+        const format = await runtime.formatFor(
+          command,
+          outputFormat(options, command),
+          options.json,
+        );
+        const fields = fieldsFor(command);
+        validateOutputFields(mutationColumns, fields);
+        const { service, username } = await context(runtime, command);
+        const result: MutationResult = {
+          action: "collection.note.set",
+          username,
+          folderId,
+          releaseId,
+          instanceId,
+          fieldId,
+          value,
+          dryRun: options.dryRun === true,
+        };
+        if (options.dryRun !== true) {
+          await service.setField(
+            username,
+            folderId,
+            releaseId,
+            instanceId,
+            fieldId,
+            value,
+          );
+        }
+        renderRecord(result, format, mutationColumns, io.stdout, fields);
+      },
+    );
 
   addListOptions(
     collection.command("list").description("List collection releases."),
@@ -117,6 +408,11 @@ export function createCollectionCommand(
       "Folder ID (0 means all folders)",
       nonNegativeInteger,
       0,
+    )
+    .option(
+      "--query <text>",
+      "Filter read items locally by title, artist, label, catalog number, or notes.",
+      nonEmptyText,
     )
     .addOption(
       new Option("--sort <field>", "Sort field").choices([
@@ -134,7 +430,14 @@ export function createCollectionCommand(
       new Option("--sort-order <order>", "Sort order").choices(["asc", "desc"]),
     )
     .action(async (options: CollectionListOptions, command: Command) => {
-      validateListOptions(options);
+      validateListOptions(options, command);
+      const fields = fieldsFor(command);
+      validateOutputFields(itemColumns, fields);
+      const format = await runtime.formatFor(
+        command,
+        outputFormat(options, command),
+        options.json,
+      );
       const { service, username } = await context(runtime, command);
       const parameters = {
         per_page: options.perPage,
@@ -151,16 +454,21 @@ export function createCollectionCommand(
           ? {}
           : { sort_order: options.sortOrder }),
       };
-      const values =
+      const rawValues =
         options.all === true
           ? service.listAll(username, options.folder, allParameters)
           : asAsync(await service.list(username, options.folder, parameters));
+      const values =
+        options.query === undefined
+          ? rawValues
+          : filterCollectionItems(rawValues, options.query);
       await renderRecords(
         values,
-        await runtime.formatFor(command, outputFormat(options), options.json),
+        format,
         itemColumns,
         io.stdout,
-        fieldsFor(command),
+        fields,
+        options.limit,
       );
     });
 
@@ -171,13 +479,21 @@ export function createCollectionCommand(
       .argument("<release-id>", "Discogs release ID", positiveInteger),
   ).action(
     async (releaseId: number, options: RecordOptions, command: Command) => {
+      const requestedFormat = outputFormat(options, command);
+      const fields = fieldsFor(command);
+      validateOutputFields(itemColumns, fields);
+      const format = await runtime.formatFor(
+        command,
+        requestedFormat,
+        options.json,
+      );
       const { service, username } = await context(runtime, command);
       await renderRecords(
         asAsync(await service.contains(username, releaseId)),
-        await runtime.formatFor(command, outputFormat(options), options.json),
+        format,
         itemColumns,
         io.stdout,
-        fieldsFor(command),
+        fields,
       );
     },
   );
@@ -198,7 +514,7 @@ export function createCollectionCommand(
       ) => {
         const format = await runtime.formatFor(
           command,
-          outputFormat(options),
+          outputFormat(options, command),
           options.json,
         );
         const fields = fieldsFor(command);
@@ -260,7 +576,7 @@ export function createCollectionCommand(
           throw usage("Provide --rating and/or --move-to.");
         const format = await runtime.formatFor(
           command,
-          outputFormat(options),
+          outputFormat(options, command),
           options.json,
         );
         const fields = fieldsFor(command);
@@ -306,7 +622,7 @@ export function createCollectionCommand(
       ) => {
         const format = await runtime.formatFor(
           command,
-          outputFormat(options),
+          outputFormat(options, command),
           options.json,
         );
         const fields = fieldsFor(command);
@@ -335,13 +651,21 @@ export function createCollectionCommand(
   addOutputOptions(
     collection.command("value").description("Show estimated collection value."),
   ).action(async (options: RecordOptions, command: Command) => {
+    const requestedFormat = outputFormat(options, command);
+    const fields = fieldsFor(command);
+    validateOutputFields(valueColumns, fields);
+    const format = await runtime.formatFor(
+      command,
+      requestedFormat,
+      options.json,
+    );
     const { service, username } = await context(runtime, command);
     renderRecord(
       await service.value(username),
-      await runtime.formatFor(command, outputFormat(options), options.json),
+      format,
       valueColumns,
       io.stdout,
-      fieldsFor(command),
+      fields,
     );
   });
   return collection;
@@ -364,4 +688,31 @@ async function context(
 
 function usage(message: string): AppError {
   return new AppError({ kind: "usage", code: "GROOVECTL_USAGE", message });
+}
+
+function nonEmptyText(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    throw new InvalidArgumentError("expected a non-empty value");
+  }
+  return trimmed;
+}
+
+async function* filterCollectionItems(
+  items: AsyncIterable<CollectionItem>,
+  query: string,
+): AsyncGenerator<CollectionItem> {
+  const needle = query.toLowerCase();
+  for await (const item of items) {
+    const haystack = [
+      item.title,
+      ...item.artists,
+      ...item.labels,
+      ...item.catalogNumbers,
+      ...item.notes.map((note) => note.value),
+    ]
+      .join(" ")
+      .toLowerCase();
+    if (haystack.includes(needle)) yield item;
+  }
 }

@@ -20,6 +20,8 @@ export interface MasterVersion {
   format: string | null;
   catalogNumber: string | null;
   status: string | null;
+  have: number | null;
+  want: number | null;
   url: string;
   resourceUrl: string;
 }

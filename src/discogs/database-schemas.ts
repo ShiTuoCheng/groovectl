@@ -26,6 +26,16 @@ export const masterVersionSchema = z.object({
   format: z.string().optional(),
   catno: z.string().optional(),
   status: z.string().optional(),
+  stats: z
+    .object({
+      community: z
+        .object({
+          in_collection: z.number().int().nonnegative().optional(),
+          in_wantlist: z.number().int().nonnegative().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
   resource_url: z.url(),
 });
 

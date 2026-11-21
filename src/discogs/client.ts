@@ -6,11 +6,27 @@ import {
   type RequestOptions,
 } from "../http/request.js";
 import { AppError } from "../errors/app-error.js";
-import type { MarketplaceCurrency } from "../domain/marketplace.js";
+import type {
+  MarketplaceCurrency,
+  MarketplaceInventorySort,
+  MarketplaceListingStatus,
+  MarketplaceOrderSort,
+} from "../domain/marketplace.js";
 import {
+  marketplaceCreateListingResponseSchema,
+  marketplaceInventoryResponseSchema,
   marketplaceListingSchema,
+  marketplaceOrderMessageSchema,
+  marketplaceOrderMessagesResponseSchema,
+  marketplaceOrderSchema,
+  marketplaceOrdersResponseSchema,
+  marketplaceOwnedListingSchema,
+  marketplacePriceSuggestionsSchema,
   marketplaceStatsSchema,
   moneySchema,
+  type DiscogsMarketplaceInventoryListing,
+  type DiscogsMarketplaceOrder,
+  type DiscogsMarketplaceOrderMessage,
 } from "./marketplace-schemas.js";
 import {
   artistReleasesResponseSchema,
@@ -28,23 +44,36 @@ import {
 } from "./database-schemas.js";
 import {
   identitySchema,
+  releaseCommunityRatingSchema,
   releaseSchema,
+  releaseUserRatingSchema,
   searchResponseSchema,
   type DiscogsIdentity,
   type DiscogsRelease,
+  type DiscogsReleaseCommunityRating,
+  type DiscogsReleaseUserRating,
   type DiscogsSearchResponse,
   type DiscogsSearchResult,
 } from "./schemas.js";
 import {
   collectionAddResponseSchema,
+  collectionFieldsResponseSchema,
+  collectionFolderSchema,
   collectionFoldersResponseSchema,
   collectionItemsResponseSchema,
   collectionValueSchema,
+  userListDetailSchema,
+  userListsResponseSchema,
+  userProfileSchema,
   wantlistItemSchema,
   wantlistResponseSchema,
+  type DiscogsCollectionField,
   type DiscogsCollectionFolder,
   type DiscogsCollectionItem,
   type DiscogsCollectionValue,
+  type DiscogsUserListDetail,
+  type DiscogsUserListSummary,
+  type DiscogsUserProfile,
   type DiscogsWantlistItem,
 } from "./user-schemas.js";
 
@@ -62,6 +91,20 @@ export interface PaginationParameters {
   per_page?: number;
 }
 
+export interface MasterVersionsParameters extends PaginationParameters {
+  format?: string;
+  label?: string;
+  released?: string;
+  country?: string;
+  sort?: "released" | "title" | "format" | "label" | "catno" | "country";
+  sort_order?: "asc" | "desc";
+}
+
+export interface ArtistReleasesParameters extends PaginationParameters {
+  sort?: "year" | "title" | "format";
+  sort_order?: "asc" | "desc";
+}
+
 export interface CollectionListParameters extends PaginationParameters {
   sort?:
     | "label"
@@ -73,6 +116,45 @@ export interface CollectionListParameters extends PaginationParameters {
     | "added"
     | "year";
   sort_order?: "asc" | "desc";
+}
+
+export interface MarketplaceInventoryParameters extends PaginationParameters {
+  status?: MarketplaceListingStatus;
+  sort?: MarketplaceInventorySort;
+  sort_order?: "asc" | "desc";
+}
+
+export interface MarketplaceListingWritePayload {
+  release_id: number;
+  condition: string;
+  sleeve_condition?: string;
+  price: number;
+  comments?: string;
+  allow_offers?: boolean;
+  status: "For Sale" | "Draft";
+  external_id?: string;
+  location?: string;
+  weight?: number;
+  format_quantity?: number;
+}
+
+export interface MarketplaceOrdersParameters extends PaginationParameters {
+  status?: string;
+  created_after?: string;
+  created_before?: string;
+  archived?: boolean;
+  sort?: MarketplaceOrderSort;
+  sort_order?: "asc" | "desc";
+}
+
+export interface MarketplaceOrderUpdatePayload {
+  status?: string;
+  shipping?: number;
+}
+
+export interface MarketplaceOrderMessagePayload {
+  message?: string;
+  status?: string;
 }
 
 export interface UserItemUpdate {
@@ -140,6 +222,14 @@ export class DiscogsClient {
     );
   }
 
+  async getMarketplaceListingForEdit(id: number) {
+    return await this.#getParsed(
+      new URL(`/marketplace/listings/${String(id)}`, this.#baseUrl),
+      marketplaceOwnedListingSchema,
+      "a marketplace listing",
+    );
+  }
+
   async getMarketplaceFee(price: string, currency?: MarketplaceCurrency) {
     const suffix = currency === undefined ? "" : `/${currency}`;
     return await this.#getParsed(
@@ -152,11 +242,226 @@ export class DiscogsClient {
     );
   }
 
-  async getRelease(id: number): Promise<DiscogsRelease> {
+  async getMarketplacePriceSuggestions(releaseId: number) {
     return await this.#getParsed(
-      new URL(`/releases/${String(id)}`, this.#baseUrl),
+      new URL(
+        `/marketplace/price_suggestions/${String(releaseId)}`,
+        this.#baseUrl,
+      ),
+      marketplacePriceSuggestionsSchema,
+      "marketplace price suggestions",
+    );
+  }
+
+  async getMarketplaceInventory(
+    username: string,
+    parameters: MarketplaceInventoryParameters = {},
+  ): Promise<DiscogsMarketplaceInventoryListing[]> {
+    const response = await this.#getParsed(
+      this.#parametersUrl(`${this.#userPath(username)}/inventory`, parameters),
+      marketplaceInventoryResponseSchema,
+      "marketplace inventory",
+    );
+    return response.listings;
+  }
+
+  getMarketplaceInventoryAll(
+    username: string,
+    parameters: Omit<MarketplaceInventoryParameters, "page"> = {},
+  ): AsyncGenerator<DiscogsMarketplaceInventoryListing> {
+    return this.#iteratePages(
+      this.#parametersUrl(`${this.#userPath(username)}/inventory`, parameters),
+      marketplaceInventoryResponseSchema,
+      "marketplace inventory",
+      (response) => response.listings,
+    );
+  }
+
+  async createMarketplaceListing(
+    payload: MarketplaceListingWritePayload,
+  ): Promise<{ listing_id: number; resource_url: string }> {
+    return await this.#requestParsed(
+      new URL("/marketplace/listings", this.#baseUrl),
+      this.#jsonRequest("POST", payload),
+      marketplaceCreateListingResponseSchema,
+      "a marketplace listing creation",
+    );
+  }
+
+  async updateMarketplaceListing(
+    listingId: number,
+    payload: MarketplaceListingWritePayload,
+  ): Promise<void> {
+    await this.#requestParsed(
+      new URL(`/marketplace/listings/${String(listingId)}`, this.#baseUrl),
+      this.#jsonRequest("POST", payload),
+      z.undefined(),
+      "a marketplace listing update",
+    );
+  }
+
+  async deleteMarketplaceListing(listingId: number): Promise<void> {
+    await this.#requestParsed(
+      new URL(`/marketplace/listings/${String(listingId)}`, this.#baseUrl),
+      { method: "DELETE" },
+      z.undefined(),
+      "a marketplace listing deletion",
+    );
+  }
+
+  async getMarketplaceOrders(
+    parameters: MarketplaceOrdersParameters = {},
+  ): Promise<DiscogsMarketplaceOrder[]> {
+    const response = await this.#getParsed(
+      this.#parametersUrl("/marketplace/orders", parameters),
+      marketplaceOrdersResponseSchema,
+      "marketplace orders",
+    );
+    return response.orders;
+  }
+
+  getMarketplaceOrdersAll(
+    parameters: Omit<MarketplaceOrdersParameters, "page"> = {},
+  ): AsyncGenerator<DiscogsMarketplaceOrder> {
+    return this.#iteratePages(
+      this.#parametersUrl("/marketplace/orders", parameters),
+      marketplaceOrdersResponseSchema,
+      "marketplace orders",
+      (response) => response.orders,
+    );
+  }
+
+  async getMarketplaceOrder(orderId: string): Promise<DiscogsMarketplaceOrder> {
+    return await this.#getParsed(
+      new URL(
+        `/marketplace/orders/${encodeURIComponent(orderId)}`,
+        this.#baseUrl,
+      ),
+      marketplaceOrderSchema,
+      "a marketplace order",
+    );
+  }
+
+  async updateMarketplaceOrder(
+    orderId: string,
+    payload: MarketplaceOrderUpdatePayload,
+  ): Promise<DiscogsMarketplaceOrder> {
+    return await this.#requestParsed(
+      new URL(
+        `/marketplace/orders/${encodeURIComponent(orderId)}`,
+        this.#baseUrl,
+      ),
+      this.#jsonRequest("POST", payload),
+      marketplaceOrderSchema,
+      "a marketplace order update",
+    );
+  }
+
+  async getMarketplaceOrderMessages(
+    orderId: string,
+    parameters: PaginationParameters = {},
+  ): Promise<DiscogsMarketplaceOrderMessage[]> {
+    const response = await this.#getParsed(
+      this.#resourceListUrl(
+        `/marketplace/orders/${encodeURIComponent(orderId)}/messages`,
+        parameters,
+      ),
+      marketplaceOrderMessagesResponseSchema,
+      "marketplace order messages",
+    );
+    return response.messages;
+  }
+
+  getMarketplaceOrderMessagesAll(
+    orderId: string,
+    parameters: Omit<PaginationParameters, "page"> = {},
+  ): AsyncGenerator<DiscogsMarketplaceOrderMessage> {
+    return this.#iteratePages(
+      this.#resourceListUrl(
+        `/marketplace/orders/${encodeURIComponent(orderId)}/messages`,
+        parameters,
+      ),
+      marketplaceOrderMessagesResponseSchema,
+      "marketplace order messages",
+      (response) => response.messages,
+    );
+  }
+
+  async addMarketplaceOrderMessage(
+    orderId: string,
+    payload: MarketplaceOrderMessagePayload,
+  ): Promise<DiscogsMarketplaceOrderMessage> {
+    return await this.#requestParsed(
+      new URL(
+        `/marketplace/orders/${encodeURIComponent(orderId)}/messages`,
+        this.#baseUrl,
+      ),
+      this.#jsonRequest("POST", payload),
+      marketplaceOrderMessageSchema,
+      "a marketplace order message",
+    );
+  }
+
+  async getRelease(
+    id: number,
+    currency?: MarketplaceCurrency,
+  ): Promise<DiscogsRelease> {
+    return await this.#getParsed(
+      this.#parametersUrl(`/releases/${String(id)}`, { curr_abbr: currency }),
       releaseSchema,
       "a release",
+    );
+  }
+
+  async getReleaseCommunityRating(
+    id: number,
+  ): Promise<DiscogsReleaseCommunityRating> {
+    return await this.#getParsed(
+      new URL(`/releases/${String(id)}/rating`, this.#baseUrl),
+      releaseCommunityRatingSchema,
+      "a release community rating",
+    );
+  }
+
+  async getReleaseUserRating(
+    id: number,
+    username: string,
+  ): Promise<DiscogsReleaseUserRating> {
+    return await this.#getParsed(
+      new URL(
+        `/releases/${String(id)}/rating/${encodeURIComponent(username)}`,
+        this.#baseUrl,
+      ),
+      releaseUserRatingSchema,
+      "a release user rating",
+    );
+  }
+
+  async setReleaseRating(
+    id: number,
+    username: string,
+    rating: number,
+  ): Promise<DiscogsReleaseUserRating> {
+    return await this.#requestParsed(
+      new URL(
+        `/releases/${String(id)}/rating/${encodeURIComponent(username)}`,
+        this.#baseUrl,
+      ),
+      this.#jsonRequest("PUT", { rating }),
+      releaseUserRatingSchema,
+      "a release rating update",
+    );
+  }
+
+  async deleteReleaseRating(id: number, username: string): Promise<void> {
+    await this.#requestParsed(
+      new URL(
+        `/releases/${String(id)}/rating/${encodeURIComponent(username)}`,
+        this.#baseUrl,
+      ),
+      { method: "DELETE" },
+      z.undefined(),
+      "a release rating deletion",
     );
   }
 
@@ -170,10 +475,10 @@ export class DiscogsClient {
 
   async getMasterVersions(
     id: number,
-    parameters: PaginationParameters = {},
+    parameters: MasterVersionsParameters = {},
   ): Promise<DiscogsMasterVersion[]> {
     const response = await this.#getParsed(
-      this.#resourceListUrl(`/masters/${String(id)}/versions`, parameters),
+      this.#parametersUrl(`/masters/${String(id)}/versions`, parameters),
       masterVersionsResponseSchema,
       "master versions",
     );
@@ -182,10 +487,10 @@ export class DiscogsClient {
 
   getMasterVersionsAll(
     id: number,
-    parameters: Omit<PaginationParameters, "page"> = {},
+    parameters: Omit<MasterVersionsParameters, "page"> = {},
   ): AsyncGenerator<DiscogsMasterVersion> {
     return this.#iteratePages(
-      this.#resourceListUrl(`/masters/${String(id)}/versions`, parameters),
+      this.#parametersUrl(`/masters/${String(id)}/versions`, parameters),
       masterVersionsResponseSchema,
       "master versions",
       (response) => response.versions,
@@ -202,10 +507,10 @@ export class DiscogsClient {
 
   async getArtistReleases(
     id: number,
-    parameters: PaginationParameters = {},
+    parameters: ArtistReleasesParameters = {},
   ): Promise<DiscogsArtistRelease[]> {
     const response = await this.#getParsed(
-      this.#resourceListUrl(`/artists/${String(id)}/releases`, parameters),
+      this.#parametersUrl(`/artists/${String(id)}/releases`, parameters),
       artistReleasesResponseSchema,
       "artist releases",
     );
@@ -214,10 +519,10 @@ export class DiscogsClient {
 
   getArtistReleasesAll(
     id: number,
-    parameters: Omit<PaginationParameters, "page"> = {},
+    parameters: Omit<ArtistReleasesParameters, "page"> = {},
   ): AsyncGenerator<DiscogsArtistRelease> {
     return this.#iteratePages(
-      this.#resourceListUrl(`/artists/${String(id)}/releases`, parameters),
+      this.#parametersUrl(`/artists/${String(id)}/releases`, parameters),
       artistReleasesResponseSchema,
       "artist releases",
       (response) => response.releases,
@@ -273,6 +578,133 @@ export class DiscogsClient {
       "collection folders",
     );
     return response.folders;
+  }
+
+  async getCollectionFolder(
+    username: string,
+    folderId: number,
+  ): Promise<DiscogsCollectionFolder> {
+    return await this.#getParsed(
+      new URL(
+        `${this.#userPath(username)}/collection/folders/${String(folderId)}`,
+        this.#baseUrl,
+      ),
+      collectionFolderSchema,
+      "a collection folder",
+    );
+  }
+
+  async createCollectionFolder(
+    username: string,
+    name: string,
+  ): Promise<DiscogsCollectionFolder> {
+    return await this.#requestParsed(
+      new URL(`${this.#userPath(username)}/collection/folders`, this.#baseUrl),
+      this.#jsonRequest("POST", { name }),
+      collectionFolderSchema,
+      "a collection folder creation",
+    );
+  }
+
+  async updateCollectionFolder(
+    username: string,
+    folderId: number,
+    name: string,
+  ): Promise<DiscogsCollectionFolder> {
+    return await this.#requestParsed(
+      new URL(
+        `${this.#userPath(username)}/collection/folders/${String(folderId)}`,
+        this.#baseUrl,
+      ),
+      this.#jsonRequest("POST", { name }),
+      collectionFolderSchema,
+      "a collection folder update",
+    );
+  }
+
+  async deleteCollectionFolder(
+    username: string,
+    folderId: number,
+  ): Promise<void> {
+    await this.#requestParsed(
+      new URL(
+        `${this.#userPath(username)}/collection/folders/${String(folderId)}`,
+        this.#baseUrl,
+      ),
+      { method: "DELETE" },
+      z.undefined(),
+      "a collection folder deletion",
+    );
+  }
+
+  async getCollectionFields(
+    username: string,
+  ): Promise<DiscogsCollectionField[]> {
+    const response = await this.#getParsed(
+      new URL(`${this.#userPath(username)}/collection/fields`, this.#baseUrl),
+      collectionFieldsResponseSchema,
+      "collection fields",
+    );
+    return response.fields;
+  }
+
+  async setCollectionInstanceField(
+    username: string,
+    folderId: number,
+    releaseId: number,
+    instanceId: number,
+    fieldId: number,
+    value: string,
+  ): Promise<void> {
+    await this.#requestParsed(
+      new URL(
+        `${this.#userPath(username)}/collection/folders/${String(folderId)}/releases/${String(releaseId)}/instances/${String(instanceId)}/fields/${String(fieldId)}`,
+        this.#baseUrl,
+      ),
+      this.#jsonRequest("POST", { value }),
+      z.undefined(),
+      "a collection field update",
+    );
+  }
+
+  async getUserProfile(username: string): Promise<DiscogsUserProfile> {
+    return await this.#getParsed(
+      new URL(this.#userPath(username), this.#baseUrl),
+      userProfileSchema,
+      "a user profile",
+    );
+  }
+
+  async getUserLists(
+    username: string,
+    parameters: PaginationParameters = {},
+  ): Promise<DiscogsUserListSummary[]> {
+    const response = await this.#getParsed(
+      this.#resourceListUrl(`${this.#userPath(username)}/lists`, parameters),
+      userListsResponseSchema,
+      "user lists",
+    );
+    return response.lists;
+  }
+
+  getUserListsAll(
+    username: string,
+    parameters: Omit<PaginationParameters, "page"> = {},
+  ): AsyncGenerator<DiscogsUserListSummary> {
+    return this.#iteratePages(
+      this.#resourceListUrl(`${this.#userPath(username)}/lists`, parameters),
+      userListsResponseSchema,
+      "user lists",
+      (response) => response.lists,
+    );
+  }
+
+  async getList(listId: number): Promise<DiscogsUserListDetail> {
+    return await this.#getParsed(
+      new URL(`/lists/${String(listId)}`, this.#baseUrl),
+      userListDetailSchema,
+      "a list",
+    );
   }
 
   async getCollectionItems(
@@ -438,19 +870,13 @@ export class DiscogsClient {
     return await this.#getParsed(url, searchResponseSchema, "search results");
   }
 
-  async *searchAll(
-    parameters: SearchParameters,
-  ): AsyncGenerator<DiscogsSearchResult> {
-    let url: URL | undefined = this.#searchUrl(parameters);
-    while (url !== undefined) {
-      const response = await this.#getParsed(
-        url,
-        searchResponseSchema,
-        "search results",
-      );
-      yield* response.results;
-      url = this.#nextUrl(response.pagination.urls.next);
-    }
+  searchAll(parameters: SearchParameters): AsyncGenerator<DiscogsSearchResult> {
+    return this.#iteratePages(
+      this.#searchUrl(parameters),
+      searchResponseSchema,
+      "search results",
+      (response) => response.results,
+    );
   }
 
   async #getParsed<T>(
@@ -504,14 +930,26 @@ export class DiscogsClient {
     description: string,
     items: (response: TResponse) => readonly TItem[],
   ): AsyncGenerator<TItem> {
+    const visited = new Set<string>([initialUrl.href]);
     let url: URL | undefined = initialUrl;
     while (url !== undefined) {
       const response = await this.#getParsed(url, schema, description);
       yield* items(response);
       const pagination = response as {
-        pagination: { urls: { next?: string } };
+        pagination: { urls: { next?: string | null | undefined } };
       };
-      url = this.#nextUrl(pagination.pagination.urls.next);
+      const next = this.#nextUrl(pagination.pagination.urls.next);
+      if (next !== undefined) {
+        if (visited.has(next.href)) {
+          throw new AppError({
+            kind: "upstream",
+            code: "GROOVECTL_PAGINATION_INVALID",
+            message: "Discogs returned a repeated pagination URL.",
+          });
+        }
+        visited.add(next.href);
+      }
+      url = next;
     }
   }
 
@@ -573,7 +1011,11 @@ export class DiscogsClient {
   #parametersUrl(pathname: string, parameters: object): URL {
     const url = new URL(pathname, this.#baseUrl);
     for (const [key, value] of Object.entries(parameters)) {
-      if (typeof value === "string" || typeof value === "number") {
+      if (
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean"
+      ) {
         url.searchParams.set(key, String(value));
       }
     }
@@ -584,8 +1026,8 @@ export class DiscogsClient {
     return `/users/${encodeURIComponent(username)}`;
   }
 
-  #nextUrl(value: string | undefined): URL | undefined {
-    if (value === undefined) return undefined;
+  #nextUrl(value: string | null | undefined): URL | undefined {
+    if (value == null) return undefined;
     const url = new URL(value);
     if (url.origin !== this.#baseUrl.origin) {
       throw new AppError({

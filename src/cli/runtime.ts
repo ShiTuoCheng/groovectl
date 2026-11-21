@@ -2,28 +2,35 @@ import { NativeKeyring } from "../auth/keyring.js";
 import { promptForConfirmation, promptForToken } from "../auth/prompt.js";
 import { TokenResolver, type Keyring } from "../auth/token-provider.js";
 import { DiscogsClient } from "../discogs/client.js";
+import { MarketplaceOffers } from "../app/marketplace-offers.js";
 import { configFilePath } from "../config/paths.js";
 import { ConfigStore } from "../config/store.js";
 import { AppError } from "../errors/app-error.js";
 import { RateLimitGate } from "../http/rate-limit.js";
 import type { FetchLike } from "../http/request.js";
+import type { OutputFormat, WritableOutput } from "../output/records.js";
 import { packageVersion } from "../version.js";
-import { timeoutFor, type GlobalOptions } from "./global-options.js";
+import type { ErrorFormat, GlobalOptions } from "./global-options.js";
+import { timeoutFor } from "./global-options.js";
 import type { Command } from "commander";
-import type { OutputFormat } from "../output/renderer.js";
+
+const userAgent = `Groovectl/${packageVersion} (+https://github.com/ShiTuoCheng/groovectl)`;
 
 export interface RuntimeDependencies {
   env?: NodeJS.ProcessEnv;
+  errorFormat?: ErrorFormat;
   fetch?: FetchLike;
   input?: AsyncIterable<string | Uint8Array>;
   interactive?: boolean;
   keyring?: Keyring;
   promptToken?: () => Promise<string>;
   confirm?: (message: string) => Promise<boolean>;
+  stderr?: WritableOutput;
 }
 
 export class CliRuntime {
   readonly env: NodeJS.ProcessEnv;
+  readonly errorFormat: ErrorFormat;
   readonly keyring: Keyring;
   readonly tokens: TokenResolver;
   readonly interactive: boolean;
@@ -31,10 +38,13 @@ export class CliRuntime {
   readonly config: ConfigStore;
   readonly #rateLimit = new RateLimitGate();
   readonly #fetch: FetchLike | undefined;
+  readonly #stderr: WritableOutput;
 
   constructor(dependencies: RuntimeDependencies = {}) {
     this.env = dependencies.env ?? process.env;
+    this.errorFormat = dependencies.errorFormat ?? "text";
     this.#fetch = dependencies.fetch;
+    this.#stderr = dependencies.stderr ?? process.stderr;
     this.keyring = dependencies.keyring ?? new NativeKeyring();
     this.interactive =
       dependencies.interactive ?? (process.stdin.isTTY && process.stderr.isTTY);
@@ -49,22 +59,12 @@ export class CliRuntime {
     });
   }
 
-  client(token?: string, timeoutMs?: number): DiscogsClient {
-    return new DiscogsClient({
-      baseUrl: resolveBaseUrl(this.env),
-      userAgent: `Groovectl/${packageVersion} (local development)`,
-      ...(this.#fetch === undefined ? {} : { fetch: this.#fetch }),
-      ...(token === undefined ? {} : { token }),
-      ...(timeoutMs === undefined ? {} : { timeoutMs }),
-    });
-  }
-
   async clientFor(command: Command, token?: string): Promise<DiscogsClient> {
     const config = await this.config.read();
     const verbose = command.optsWithGlobals<GlobalOptions>().verbose === true;
     return new DiscogsClient({
       baseUrl: resolveBaseUrl(this.env),
-      userAgent: `Groovectl/${packageVersion} (local development)`,
+      userAgent,
       ...(this.#fetch === undefined ? {} : { fetch: this.#fetch }),
       ...(token === undefined ? {} : { token }),
       timeoutMs: timeoutFor(command) ?? config.timeoutMs,
@@ -75,7 +75,7 @@ export class CliRuntime {
         ...(verbose
           ? {
               onDiagnostic: (message: string) =>
-                process.stderr.write(`[groovectl] ${message}\n`),
+                this.#stderr.write(`[groovectl] ${message}\n`),
             }
           : {}),
       },
@@ -93,6 +93,18 @@ export class CliRuntime {
       return (await this.config.read()).format;
     }
     return requested;
+  }
+
+  async marketplaceOffersFor(command: Command): Promise<MarketplaceOffers> {
+    const config = await this.config.read();
+    const verbose = command.optsWithGlobals<GlobalOptions>().verbose === true;
+    return new MarketplaceOffers(
+      this.#fetch,
+      timeoutFor(command) ?? config.timeoutMs,
+      verbose
+        ? (message: string) => this.#stderr.write(`[groovectl] ${message}\n`)
+        : undefined,
+    );
   }
 }
 

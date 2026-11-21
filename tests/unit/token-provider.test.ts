@@ -115,6 +115,54 @@ describe("TokenResolver", () => {
       }),
     ).resolves.toBeUndefined();
   });
+
+  it("decodes Uint8Array chunks from stdin and rejects empty tokens", async () => {
+    async function* bytes(): AsyncIterable<Uint8Array> {
+      yield await Promise.resolve(new TextEncoder().encode("  byte-token\r\n"));
+    }
+    const resolver = createResolver({ input: bytes() });
+    await expect(
+      resolver.resolve({
+        policy: "token_required",
+        tokenStdin: true,
+        forcePrompt: false,
+      }),
+    ).resolves.toEqual({ token: "byte-token", source: "stdin" });
+
+    const empty = createResolver({ env: { DISCOGS_TOKEN: "   " } });
+    await expect(
+      empty.resolve({
+        policy: "token_required",
+        tokenStdin: false,
+        forcePrompt: false,
+      }),
+    ).rejects.toMatchObject({
+      code: "GROOVECTL_TOKEN_EMPTY",
+      kind: "auth_invalid",
+    });
+  });
+
+  it("returns saved keyring tokens and ignores keyring failures for optional commands", async () => {
+    const saved = createResolver({ keyring: new MemoryKeyring("kr-token") });
+    await expect(
+      saved.resolve({
+        policy: "token_optional",
+        tokenStdin: false,
+        forcePrompt: false,
+      }),
+    ).resolves.toEqual({ token: "kr-token", source: "keyring" });
+
+    const failingKeyring = new MemoryKeyring();
+    failingKeyring.failGet = true;
+    const optional = createResolver({ keyring: failingKeyring });
+    await expect(
+      optional.resolve({
+        policy: "token_optional",
+        tokenStdin: false,
+        forcePrompt: false,
+      }),
+    ).resolves.toBeUndefined();
+  });
 });
 
 function createResolver(

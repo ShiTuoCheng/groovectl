@@ -3,12 +3,17 @@ import { Command, Option } from "commander";
 import { DatabaseService } from "../../app/database-service.js";
 import type { SearchParameters } from "../../discogs/client.js";
 import type { SearchResult } from "../../domain/search-result.js";
-import type { OutputFormat } from "../../output/renderer.js";
+import { AppError } from "../../errors/app-error.js";
+import {
+  renderRecords,
+  validateOutputFields,
+  type OutputFormat,
+} from "../../output/records.js";
 import { positiveInteger } from "../create-program.js";
 import { fieldsFor, tokenRequestFor } from "../global-options.js";
 import type { CliRuntime } from "../runtime.js";
 import type { CliIo } from "../run-cli.js";
-import { renderRecords } from "../../output/records.js";
+import { asAsync, outputFormats } from "./database-common.js";
 
 interface SearchOptions {
   type?: SearchParameters["type"];
@@ -31,20 +36,22 @@ interface SearchOptions {
   page?: number;
   perPage: number;
   all?: boolean;
+  limit?: number;
   output: OutputFormat;
   json?: boolean;
 }
 
-const formats = ["table", "json", "jsonl", "tsv"] as const;
 const searchColumns = [
   { key: "type", value: (item: SearchResult) => item.type },
   { key: "id", value: (item: SearchResult) => item.id },
+  { key: "masterId", value: (item: SearchResult) => item.masterId },
   { key: "title", value: (item: SearchResult) => item.title },
   { key: "year", value: (item: SearchResult) => item.year },
   { key: "country", value: (item: SearchResult) => item.country },
   { key: "formats", value: (item: SearchResult) => item.formats },
   { key: "labels", value: (item: SearchResult) => item.labels },
   { key: "catalogNumber", value: (item: SearchResult) => item.catalogNumber },
+  { key: "barcodes", value: (item: SearchResult) => item.barcodes },
   { key: "url", value: (item: SearchResult) => item.url },
 ] as const;
 
@@ -84,9 +91,10 @@ export function createSearchCommand(io: CliIo, runtime: CliRuntime): Command {
       50,
     )
     .option("--all", "Read every result page serially.")
+    .option("--limit <count>", "Maximum records to output.", positiveInteger)
     .addOption(
       new Option("--output <format>", "Output format")
-        .choices([...formats])
+        .choices([...outputFormats])
         .default("table"),
     )
     .option("--json", "Shortcut for --output json.")
@@ -97,6 +105,14 @@ export function createSearchCommand(io: CliIo, runtime: CliRuntime): Command {
         command: Command,
       ) => {
         validateOptions(query, options, command);
+        const fields = fieldsFor(command);
+        validateOutputFields(searchColumns, fields);
+        const format = await runtime.formatFor(
+          command,
+          options.output,
+          options.json,
+          "output",
+        );
         const parameters = compact({
           q: query,
           type: options.type,
@@ -123,7 +139,6 @@ export function createSearchCommand(io: CliIo, runtime: CliRuntime): Command {
           tokenRequestFor(command, "token_required"),
         );
         const client = await runtime.clientFor(command, resolved?.token);
-        await client.getIdentity();
         const service = new DatabaseService(client);
         const results =
           options.all === true
@@ -131,15 +146,11 @@ export function createSearchCommand(io: CliIo, runtime: CliRuntime): Command {
             : asAsync(await service.search(parameters));
         await renderRecords(
           results,
-          await runtime.formatFor(
-            command,
-            options.output,
-            options.json,
-            "output",
-          ),
+          format,
           searchColumns,
           io.stdout,
-          fieldsFor(command),
+          fields,
+          options.limit,
         );
       },
     );
@@ -150,12 +161,29 @@ function validateOptions(
   options: SearchOptions,
   command: Command,
 ): void {
-  if (options.perPage > 100) command.error("--per-page cannot exceed 100.");
-  if (options.all === true && options.page !== undefined) {
-    command.error("--all cannot be combined with --page.");
+  if (options.perPage > 100) {
+    throw new AppError({
+      kind: "usage",
+      code: "GROOVECTL_INVALID_PAGE_SIZE",
+      message: "--per-page cannot exceed 100.",
+    });
   }
-  if (options.json === true && options.output !== "table") {
-    command.error("--json cannot be combined with --output.");
+  if (options.all === true && options.page !== undefined) {
+    throw new AppError({
+      kind: "usage",
+      code: "GROOVECTL_PAGINATION_CONFLICT",
+      message: "--all cannot be combined with --page.",
+    });
+  }
+  if (
+    options.json === true &&
+    command.getOptionValueSource("output") !== "default"
+  ) {
+    throw new AppError({
+      kind: "usage",
+      code: "GROOVECTL_OUTPUT_CONFLICT",
+      message: "--json cannot be combined with --output.",
+    });
   }
   const criteria = [
     query,
@@ -176,8 +204,14 @@ function validateOptions(
     options.submitter,
     options.contributor,
   ];
-  if (!criteria.some((value) => value !== undefined)) {
-    command.error("provide a query or at least one search filter.");
+  if (
+    !criteria.some((value) => value !== undefined && value.trim().length > 0)
+  ) {
+    throw new AppError({
+      kind: "usage",
+      code: "GROOVECTL_USAGE",
+      message: "Provide a query or at least one search filter.",
+    });
   }
 }
 
@@ -187,10 +221,4 @@ function compact(
   return Object.fromEntries(
     Object.entries(parameters).filter(([, value]) => value !== undefined),
   );
-}
-
-async function* asAsync<T>(values: readonly T[]): AsyncGenerator<T> {
-  for (const value of values) {
-    yield await Promise.resolve(value);
-  }
 }

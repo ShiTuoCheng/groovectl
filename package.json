@@ -1,6 +1,6 @@
 {
   "name": "groovectl",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "A script-friendly Discogs CLI for exploring releases, managing your collection and wantlist, and reading Marketplace data.",
   "license": "Apache-2.0",
   "repository": {
@@ -57,6 +57,7 @@
   "dependencies": {
     "@inquirer/prompts": "^8.7.2",
     "@napi-rs/keyring": "^2.1.0",
+    "cheerio": "1.1.2",
     "commander": "^15.0.0",
     "zod": "^4.6.7"
   },

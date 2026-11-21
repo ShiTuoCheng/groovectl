@@ -25,5 +25,29 @@ describe("NativeKeyring", () => {
     await expect(keyring.get()).rejects.toMatchObject({
       code: "GROOVECTL_KEYRING_UNAVAILABLE",
     });
+    await expect(keyring.set("tok")).rejects.toMatchObject({
+      code: "GROOVECTL_KEYRING_UNAVAILABLE",
+    });
+    await expect(keyring.delete()).rejects.toMatchObject({
+      code: "GROOVECTL_KEYRING_UNAVAILABLE",
+    });
+  });
+
+  it("delegates get, set, and delete to the native AsyncEntry once initialized", async () => {
+    const getPassword = vi.fn(() => Promise.resolve("saved-token"));
+    const setPassword = vi.fn(() => Promise.resolve());
+    const deletePassword = vi.fn(() => Promise.resolve(true));
+    vi.mocked(AsyncEntry).mockImplementation(function () {
+      return {
+        getPassword,
+        setPassword,
+        deletePassword,
+      } as unknown as AsyncEntry;
+    });
+    const keyring = new NativeKeyring();
+    await expect(keyring.set("saved-token")).resolves.toBeUndefined();
+    await expect(keyring.get()).resolves.toBe("saved-token");
+    await expect(keyring.delete()).resolves.toBe(true);
+    expect(AsyncEntry).toHaveBeenCalledTimes(1);
   });
 });

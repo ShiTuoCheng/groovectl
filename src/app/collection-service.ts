@@ -5,6 +5,7 @@ import type {
 import type { DiscogsCollectionItem } from "../discogs/user-schemas.js";
 import type {
   CollectionAddResult,
+  CollectionField,
   CollectionFolder,
   CollectionItem,
   CollectionValue,
@@ -20,13 +21,70 @@ export class CollectionService {
   }
 
   async folders(username: string): Promise<CollectionFolder[]> {
-    return (await this.#client.getCollectionFolders(username)).map(
-      (folder) => ({
-        id: folder.id,
-        name: folder.name,
-        count: folder.count,
-        resourceUrl: folder.resource_url,
-      }),
+    return (await this.#client.getCollectionFolders(username)).map((folder) =>
+      this.#mapFolder(folder),
+    );
+  }
+
+  async getFolder(
+    username: string,
+    folderId: number,
+  ): Promise<CollectionFolder> {
+    return this.#mapFolder(
+      await this.#client.getCollectionFolder(username, folderId),
+    );
+  }
+
+  async createFolder(
+    username: string,
+    name: string,
+  ): Promise<CollectionFolder> {
+    return this.#mapFolder(
+      await this.#client.createCollectionFolder(username, name),
+    );
+  }
+
+  async renameFolder(
+    username: string,
+    folderId: number,
+    name: string,
+  ): Promise<CollectionFolder> {
+    return this.#mapFolder(
+      await this.#client.updateCollectionFolder(username, folderId, name),
+    );
+  }
+
+  async deleteFolder(username: string, folderId: number): Promise<void> {
+    await this.#client.deleteCollectionFolder(username, folderId);
+  }
+
+  async fields(username: string): Promise<CollectionField[]> {
+    return (await this.#client.getCollectionFields(username)).map((field) => ({
+      id: field.id,
+      name: field.name,
+      type: field.type,
+      position: field.position,
+      public: field.public ?? null,
+      lines: field.lines ?? null,
+      options: field.options,
+    }));
+  }
+
+  async setField(
+    username: string,
+    folderId: number,
+    releaseId: number,
+    instanceId: number,
+    fieldId: number,
+    value: string,
+  ): Promise<void> {
+    await this.#client.setCollectionInstanceField(
+      username,
+      folderId,
+      releaseId,
+      instanceId,
+      fieldId,
+      value,
     );
   }
 
@@ -120,6 +178,20 @@ export class CollectionService {
     };
   }
 
+  #mapFolder(folder: {
+    id: number;
+    name: string;
+    count: number;
+    resource_url: string;
+  }): CollectionFolder {
+    return {
+      id: folder.id,
+      name: folder.name,
+      count: folder.count,
+      resourceUrl: folder.resource_url,
+    };
+  }
+
   #mapItem(item: DiscogsCollectionItem): CollectionItem {
     return {
       ...mapBasicInformation(item.basic_information),
@@ -135,21 +207,43 @@ export class CollectionService {
   }
 }
 
+const currencyTokens: ReadonlyArray<readonly [string, string]> = [
+  ["CA$", "CAD"],
+  ["AU$", "AUD"],
+  ["A$", "AUD"],
+  ["NZ$", "NZD"],
+  ["MX$", "MXN"],
+  ["R$", "BRL"],
+  ["US$", "USD"],
+  ["CHF", "CHF"],
+  ["SEK", "SEK"],
+  ["ZAR", "ZAR"],
+  ["CAD", "CAD"],
+  ["AUD", "AUD"],
+  ["NZD", "NZD"],
+  ["MXN", "MXN"],
+  ["BRL", "BRL"],
+  ["USD", "USD"],
+  ["EUR", "EUR"],
+  ["GBP", "GBP"],
+  ["JPY", "JPY"],
+  ["€", "EUR"],
+  ["£", "GBP"],
+  ["¥", "JPY"],
+];
+
 function parseMoney(display: string): MoneyValue {
-  const symbols: Record<string, string> = {
-    $: "USD",
-    "€": "EUR",
-    "£": "GBP",
-    "¥": "JPY",
-  };
-  const symbol = Object.keys(symbols).find((candidate) =>
-    display.includes(candidate),
-  );
+  const matched = currencyTokens.find(([token]) =>
+    display.includes(token),
+  )?.[1];
+  const currency = matched ?? (/(?<![A-Za-z])\$/u.test(display) ? "USD" : null);
   const normalized = display.replace(/[^0-9.,-]/gu, "").replaceAll(",", "");
-  const parsed = Number(normalized);
+  const parsed = /^-?\d+(?:\.\d+)?$/u.test(normalized)
+    ? Number(normalized)
+    : Number.NaN;
   return {
     value: Number.isFinite(parsed) ? parsed : null,
-    currency: symbol === undefined ? null : (symbols[symbol] ?? null),
+    currency,
     display,
   };
 }

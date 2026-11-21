@@ -1,7 +1,7 @@
 import { Option, type Command } from "commander";
 
 import { AppError } from "../../errors/app-error.js";
-import type { OutputFormat } from "../../output/renderer.js";
+import type { OutputFormat } from "../../output/records.js";
 import { positiveInteger } from "../create-program.js";
 
 export const outputFormats = ["table", "json", "jsonl", "tsv"] as const;
@@ -13,6 +13,7 @@ export interface RecordOptions {
 
 export interface ListOptions extends RecordOptions {
   all?: boolean;
+  limit?: number;
   page?: number;
   perPage: number;
 }
@@ -36,11 +37,20 @@ export function addListOptions(command: Command): Command {
       positiveInteger,
       50,
     )
-    .option("--all", "Read every page serially.");
+    .option("--all", "Read every page serially.")
+    .option("--limit <count>", "Maximum records to output.", positiveInteger);
 }
 
-export function outputFormat(options: RecordOptions): OutputFormat {
-  if (options.json === true && options.format !== "table") {
+export function outputFormat(
+  options: RecordOptions,
+  command?: Command,
+  optionName = "format",
+): OutputFormat {
+  const explicitFormat =
+    command === undefined
+      ? options.format !== "table"
+      : command.getOptionValueSource(optionName) !== "default";
+  if (options.json === true && explicitFormat) {
     throw new AppError({
       kind: "usage",
       code: "GROOVECTL_OUTPUT_CONFLICT",
@@ -50,8 +60,11 @@ export function outputFormat(options: RecordOptions): OutputFormat {
   return options.json === true ? "json" : options.format;
 }
 
-export function validateListOptions(options: ListOptions): void {
-  outputFormat(options);
+export function validateListOptions(
+  options: ListOptions,
+  command?: Command,
+): void {
+  outputFormat(options, command);
   if (options.perPage > 100) {
     throw new AppError({
       kind: "usage",

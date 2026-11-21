@@ -56,12 +56,73 @@ export interface WantlistItem extends BasicReleaseInformation {
   notes: string | null;
 }
 
+export interface CollectionField {
+  id: number;
+  name: string;
+  type: string;
+  position: number;
+  public: boolean | null;
+  lines: number | null;
+  options: string[];
+}
+
+export interface UserProfile {
+  id: number;
+  username: string;
+  name: string | null;
+  profile: string | null;
+  location: string | null;
+  homePage: string | null;
+  registered: string | null;
+  numCollection: number | null;
+  numWantlist: number | null;
+  numForSale: number | null;
+  numLists: number | null;
+  releasesContributed: number | null;
+  releasesRated: number | null;
+  ratingAverage: number | null;
+  currency: string | null;
+  buyerRating: number | null;
+  buyerNumRatings: number | null;
+  sellerRating: number | null;
+  sellerNumRatings: number | null;
+  url: string;
+  resourceUrl: string;
+}
+
+export interface UserListSummary {
+  id: number;
+  name: string;
+  description: string | null;
+  public: boolean | null;
+  dateAdded: string | null;
+  dateChanged: string | null;
+  url: string;
+  resourceUrl: string;
+}
+
+export interface UserListItem {
+  id: number;
+  type: string;
+  title: string;
+  comment: string | null;
+  url: string;
+  resourceUrl: string | null;
+}
+
+export interface UserListDetail extends UserListSummary {
+  items: UserListItem[];
+}
+
 export interface MutationResult {
   action: string;
   username: string;
-  releaseId: number;
+  releaseId?: number;
   folderId?: number;
+  folderName?: string;
   instanceId?: number;
+  fieldId?: number;
+  value?: string;
   rating?: number;
   notes?: string;
   dryRun: boolean;

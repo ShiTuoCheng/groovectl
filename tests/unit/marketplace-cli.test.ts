@@ -175,6 +175,7 @@ describe("marketplace CLI", () => {
     ["listing", "get", "42", "--currency", "eur"],
     ["fee", "45", "--currency", "CNY"],
     ["stats", "7", "--json", "--format", "tsv"],
+    ["stats", "7", "--json", "--format", "table"],
   ])(
     "rejects invalid arguments before making requests: %j",
     async (...args) => {
@@ -220,17 +221,24 @@ describe("marketplace CLI", () => {
     expect(result.stderr).not.toContain("sensitive-upstream-body");
   });
 
-  it("rejects unknown output fields with the existing stable error", async () => {
-    const result = await invoke([
-      "marketplace",
-      "stats",
-      "7",
-      "--fields",
-      "noSuchField",
-    ]);
-    expect(result.code).toBe(2);
-    expect(result.stderr).toContain("GROOVECTL_FIELD_UNKNOWN");
-  });
+  it.each([
+    ["stats", "7"],
+    ["listing", "get", "42"],
+    ["fee", "45"],
+  ])(
+    "rejects unknown output fields before making requests: %j",
+    async (...args) => {
+      const result = await invoke([
+        "marketplace",
+        ...args,
+        "--fields",
+        "noSuchField",
+      ]);
+      expect(result.code).toBe(2);
+      expect(result.stderr).toContain("GROOVECTL_FIELD_UNKNOWN");
+      expect(result.fetch).not.toHaveBeenCalled();
+    },
+  );
 
   it("asks for a token when the API denies an anonymous request", async () => {
     const result = await invoke(["marketplace", "fee", "45", "--json"], null, {
@@ -260,10 +268,13 @@ describe("marketplace CLI", () => {
     expect(result.stderr).not.toContain("fake-invalid-token");
   });
 
-  it("does not expose monitoring or write commands", async () => {
+  it("does not expose monitoring or watch commands in marketplace help", async () => {
     const result = await invoke(["marketplace", "--help"]);
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("Data provided by Discogs.");
-    expect(result.stdout).not.toMatch(/watch|delete|create|update/u);
+    expect(result.stdout).toContain("price-suggestions");
+    expect(result.stdout).toContain("inventory");
+    expect(result.stdout).toContain("orders");
+    expect(result.stdout).not.toMatch(/\bwatch\b|daemon|schedule/u);
   });
 });

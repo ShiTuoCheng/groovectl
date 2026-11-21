@@ -2,7 +2,11 @@ import { Command } from "commander";
 
 import { DatabaseService } from "../../app/database-service.js";
 import type { Label, LabelRelease } from "../../domain/database-resource.js";
-import { renderRecord, renderRecords } from "../../output/records.js";
+import {
+  renderRecord,
+  renderRecords,
+  validateOutputFields,
+} from "../../output/records.js";
 import { positiveInteger } from "../create-program.js";
 import { fieldsFor, tokenRequestFor } from "../global-options.js";
 import type { CliRuntime } from "../runtime.js";
@@ -46,19 +50,21 @@ export function createLabelCommand(io: CliIo, runtime: CliRuntime): Command {
       .description("Get a label by ID.")
       .argument("<id>", "Discogs label ID", positiveInteger),
   ).action(async (id: number, options: RecordOptions, command: Command) => {
+    const requestedFormat = outputFormat(options, command);
+    const fields = fieldsFor(command);
+    validateOutputFields(labelColumns, fields);
+    const format = await runtime.formatFor(
+      command,
+      requestedFormat,
+      options.json,
+    );
     const token = await runtime.tokens.resolve(
       tokenRequestFor(command, "token_optional"),
     );
     const result = await new DatabaseService(
       await runtime.clientFor(command, token?.token),
     ).getLabel(id);
-    renderRecord(
-      result,
-      await runtime.formatFor(command, outputFormat(options), options.json),
-      labelColumns,
-      io.stdout,
-      fieldsFor(command),
-    );
+    renderRecord(result, format, labelColumns, io.stdout, fields);
   });
 
   addListOptions(
@@ -67,7 +73,14 @@ export function createLabelCommand(io: CliIo, runtime: CliRuntime): Command {
       .description("List a label's releases.")
       .argument("<id>", "Discogs label ID", positiveInteger),
   ).action(async (id: number, options: ListOptions, command: Command) => {
-    validateListOptions(options);
+    validateListOptions(options, command);
+    const fields = fieldsFor(command);
+    validateOutputFields(releaseColumns, fields);
+    const format = await runtime.formatFor(
+      command,
+      outputFormat(options, command),
+      options.json,
+    );
     const token = await runtime.tokens.resolve(
       tokenRequestFor(command, "token_optional"),
     );
@@ -85,10 +98,11 @@ export function createLabelCommand(io: CliIo, runtime: CliRuntime): Command {
           );
     await renderRecords(
       values,
-      await runtime.formatFor(command, outputFormat(options), options.json),
+      format,
       releaseColumns,
       io.stdout,
-      fieldsFor(command),
+      fields,
+      options.limit,
     );
   });
 

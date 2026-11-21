@@ -1,5 +1,6 @@
 export interface SearchResult {
   id: number;
+  masterId: number | null;
   type: string;
   title: string;
   year: string | null;
@@ -8,6 +9,7 @@ export interface SearchResult {
   labels: string[];
   genres: string[];
   styles: string[];
+  barcodes: string[];
   catalogNumber: string | null;
   url: string;
   resourceUrl: string;

@@ -1,18 +1,22 @@
 import { execFile, spawn } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { once } from "node:events";
-import { resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it } from "vitest";
 import { listingFixture, statsFixture } from "../fixtures/marketplace.js";
+import { marketplacePage, offerRow } from "../fixtures/marketplace-page.js";
 
 const servers: ReturnType<typeof createServer>[] = [];
+const tempDirectories: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    servers.splice(0).map(
+  await Promise.all([
+    ...servers.splice(0).map(
       (server) =>
         new Promise<void>((resolve, reject) => {
           server.close((error) =>
@@ -20,7 +24,10 @@ afterEach(async () => {
           );
         }),
     ),
-  );
+    ...tempDirectories
+      .splice(0)
+      .map((dir) => rm(dir, { recursive: true, force: true })),
+  ]);
 });
 
 describe("groovectl CLI", () => {
@@ -32,7 +39,7 @@ describe("groovectl CLI", () => {
         ["version", "--json"],
       );
       expect(stderr).toBe("");
-      expect(JSON.parse(stdout)).toMatchObject({ version: "0.1.1" });
+      expect(JSON.parse(stdout)).toMatchObject({ version: "0.2.0" });
     },
   );
 
@@ -103,11 +110,122 @@ describe("groovectl CLI", () => {
     },
   );
 
+  it("parses saved marketplace HTML through the built CLI without network access", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "groovectl-e2e-html-"));
+    tempDirectories.push(dir);
+    const htmlPath = join(dir, "release-7.html");
+    await writeFile(
+      htmlPath,
+      marketplacePage([
+        offerRow({ id: 42, country: "United Kingdom", price: "80.00" }),
+        offerRow({ id: 43, country: "United States", price: "50.00" }),
+      ]),
+    );
+    const result = await runCli(
+      [
+        "marketplace",
+        "listings",
+        "7",
+        "--html",
+        htmlPath,
+        "--ships-from",
+        "United Kingdom",
+        "--json",
+      ],
+      { NODE_ENV: "test", GROOVECTL_CONFIG_DIR: dir },
+    );
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain("saved HTML");
+    expect(JSON.parse(result.stdout)).toMatchObject([
+      {
+        id: 42,
+        releaseId: 7,
+        price: { value: 80, currency: "GBP" },
+        marketplaceUrl: "https://www.discogs.com/sell/item/42",
+        source: "html",
+      },
+    ]);
+  });
+
+  it("outputs compact CLI schema and JSON errors through the built CLI", async () => {
+    const schemaRes = await runCli(["schema", "--compact"]);
+    expect(schemaRes.code).toBe(0);
+    expect(schemaRes.stderr).toBe("");
+    const schema = JSON.parse(schemaRes.stdout) as {
+      name: string;
+      commands: Array<{ path: string }>;
+    };
+    expect(schema.name).toBe("groovectl");
+    expect(schema.commands.map((entry) => entry.path)).toContain(
+      "marketplace price-suggestions",
+    );
+
+    const errRes = await runCli([
+      "--error-format",
+      "json",
+      "release",
+      "get",
+      "not-a-number",
+    ]);
+    expect(errRes.code).toBe(2);
+    expect(errRes.stdout).toBe("");
+    expect(JSON.parse(errRes.stderr)).toMatchObject({
+      error: {
+        code: "GROOVECTL_USAGE",
+        kind: "usage",
+        exitCode: 2,
+      },
+    });
+  });
+
+  it("reads marketplace price suggestions through the built CLI", async () => {
+    const server = createServer((request, response) => {
+      expect(request.url).toBe("/marketplace/price_suggestions/7");
+      expect(request.headers.authorization).toBe("Discogs token=fake-token");
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          "Very Good Plus (VG+)": { value: 42.5, currency: "USD" },
+          "Near Mint (NM or M-)": { value: 75, currency: "USD" },
+        }),
+      );
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address() as AddressInfo;
+    const result = await runCli(
+      ["--token-stdin", "marketplace", "price-suggestions", "7", "--json"],
+      {
+        NODE_ENV: "test",
+        GROOVECTL_API_BASE_URL: `http://127.0.0.1:${String(address.port)}`,
+      },
+      "fake-token\n",
+    );
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toEqual([
+      {
+        releaseId: 7,
+        grade: "NM",
+        condition: "Near Mint (NM or M-)",
+        price: { value: 75, currency: "USD" },
+      },
+      {
+        releaseId: 7,
+        grade: "VG+",
+        condition: "Very Good Plus (VG+)",
+        price: { value: 42.5, currency: "USD" },
+      },
+    ]);
+  });
+
   it("prints machine-readable version information", async () => {
     const result = await runCli(["version", "--json"]);
     expect(result.code).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
-      version: "0.1.1",
+      version: "0.2.0",
       platform: process.platform,
       arch: process.arch,
     });
@@ -195,20 +313,12 @@ describe("groovectl CLI", () => {
     });
   });
 
-  it("searches after validating the temporary token", async () => {
+  it("searches directly with the temporary token without a separate identity lookup", async () => {
+    const requests: string[] = [];
     const server = createServer((request, response) => {
+      requests.push(request.url ?? "");
       expect(request.headers.authorization).toBe("Discogs token=fake-token");
       response.writeHead(200, { "content-type": "application/json" });
-      if (request.url === "/oauth/identity") {
-        response.end(
-          JSON.stringify({
-            id: 8,
-            username: "fixture-user",
-            resource_url: "https://api.discogs.com/users/fixture-user",
-          }),
-        );
-        return;
-      }
       expect(request.url).toContain("/database/search?");
       response.end(
         JSON.stringify({
@@ -252,6 +362,7 @@ describe("groovectl CLI", () => {
     );
     expect(result.code).toBe(0);
     expect(result.stdout).not.toContain("fake-token");
+    expect(requests).toHaveLength(1);
     expect(JSON.parse(result.stdout)).toMatchObject([
       { id: 9, type: "release", title: "Fixture Artist - Fixture Album" },
     ]);

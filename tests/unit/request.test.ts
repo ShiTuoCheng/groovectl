@@ -106,4 +106,95 @@ describe("requestJson", () => {
       ),
     ).rejects.toMatchObject({ code: "GROOVECTL_NETWORK_ERROR" });
   });
+
+  it("handles HTTP-date Retry-After and refuses delays exceeding maxRateLimitWaitMs", async () => {
+    const futureDate = new Date(Date.now() + 1_500).toUTCString();
+    const sleep = vi.fn<(milliseconds: number) => Promise<void>>(() =>
+      Promise.resolve(),
+    );
+    const okFetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 429,
+          headers: { "retry-after": futureDate },
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({ ok: true }));
+    await expect(
+      requestJson(
+        new URL("https://api.discogs.com/test"),
+        { method: "GET" },
+        { fetch: okFetch, maxRateLimitWaitMs: 5_000, sleep },
+      ),
+    ).resolves.toEqual({ ok: true });
+    expect(sleep).toHaveBeenCalledTimes(1);
+
+    const tooLongFetch = vi.fn<typeof globalThis.fetch>(() =>
+      Promise.resolve(
+        new Response(null, { status: 429, headers: { "retry-after": "120" } }),
+      ),
+    );
+    await expect(
+      requestJson(
+        new URL("https://api.discogs.com/test"),
+        { method: "GET" },
+        { fetch: tooLongFetch, maxRateLimitWaitMs: 5_000, sleep },
+      ),
+    ).rejects.toMatchObject({
+      code: "GROOVECTL_RATE_LIMITED",
+      httpStatus: 429,
+    });
+    expect(tooLongFetch).toHaveBeenCalledOnce();
+  });
+
+  it("returns undefined for 204 or empty bodies and rejects malformed JSON", async () => {
+    await expect(
+      requestJson(
+        new URL("https://api.discogs.com/delete"),
+        { method: "DELETE" },
+        { fetch: () => Promise.resolve(new Response(null, { status: 204 })) },
+      ),
+    ).resolves.toBeUndefined();
+
+    await expect(
+      requestJson(
+        new URL("https://api.discogs.com/empty"),
+        { method: "GET" },
+        { fetch: () => Promise.resolve(new Response("", { status: 200 })) },
+      ),
+    ).resolves.toBeUndefined();
+
+    await expect(
+      requestJson(
+        new URL("https://api.discogs.com/bad"),
+        { method: "GET" },
+        { fetch: () => Promise.resolve(new Response("{bad", { status: 200 })) },
+      ),
+    ).rejects.toMatchObject({ code: "GROOVECTL_INVALID_RESPONSE" });
+  });
+
+  it("retries transient GET network failures and sanitizes diagnostic URLs", async () => {
+    const diagnostics: string[] = [];
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockRejectedValueOnce(new Error("ECONNRESET"))
+      .mockResolvedValueOnce(Response.json({ ok: true }));
+    await expect(
+      requestJson(
+        new URL("https://api.discogs.com/database/search?q=secret"),
+        { method: "GET" },
+        {
+          fetch,
+          maxRetries: 2,
+          random: () => 0,
+          sleep: () => Promise.resolve(),
+          onDiagnostic: (message) => diagnostics.push(message),
+        },
+      ),
+    ).resolves.toEqual({ ok: true });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(diagnostics[0]).toBe("GET https://api.discogs.com/database/search");
+    expect(diagnostics.join("\n")).not.toContain("secret");
+  });
 });

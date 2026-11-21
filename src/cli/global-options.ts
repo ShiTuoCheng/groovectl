@@ -2,13 +2,21 @@ import type { Command } from "commander";
 
 import type { AuthPolicy, TokenRequest } from "../auth/token-provider.js";
 
+export type ErrorFormat = "text" | "json";
+
 export interface GlobalOptions {
   color?: boolean;
+  errorFormat?: ErrorFormat;
   fields?: string;
+  quiet?: boolean;
   token?: boolean;
   tokenStdin?: boolean;
   timeout?: number;
   verbose?: boolean;
+}
+
+export function isQuiet(command: Command): boolean {
+  return command.optsWithGlobals<GlobalOptions>().quiet === true;
 }
 
 export function tokenRequestFor(

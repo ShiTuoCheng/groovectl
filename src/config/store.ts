@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { z } from "zod";
 
 import { configSchema, defaultConfig, type GroovectlConfig } from "./schema.js";
 import { AppError } from "../errors/app-error.js";
@@ -66,7 +67,18 @@ export class ConfigStore {
     key: K,
     value: GroovectlConfig[K],
   ): Promise<GroovectlConfig> {
-    const next = configSchema.parse({ ...(await this.read()), [key]: value });
+    let next: GroovectlConfig;
+    try {
+      next = configSchema.parse({ ...(await this.read()), [key]: value });
+    } catch (cause: unknown) {
+      if (!(cause instanceof z.ZodError)) throw cause;
+      throw new AppError({
+        kind: "usage",
+        code: "GROOVECTL_CONFIG_VALUE_INVALID",
+        message: `Invalid value for ${key}.`,
+        cause,
+      });
+    }
     await this.write(next);
     return next;
   }

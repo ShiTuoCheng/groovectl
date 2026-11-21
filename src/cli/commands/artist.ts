@@ -1,8 +1,13 @@
-import { Command } from "commander";
+import { Command, Option } from "commander";
 
 import { DatabaseService } from "../../app/database-service.js";
+import type { ArtistReleasesParameters } from "../../discogs/client.js";
 import type { Artist, ArtistRelease } from "../../domain/database-resource.js";
-import { renderRecord, renderRecords } from "../../output/records.js";
+import {
+  renderRecord,
+  renderRecords,
+  validateOutputFields,
+} from "../../output/records.js";
 import { positiveInteger } from "../create-program.js";
 import { fieldsFor, tokenRequestFor } from "../global-options.js";
 import type { CliRuntime } from "../runtime.js";
@@ -45,19 +50,21 @@ export function createArtistCommand(io: CliIo, runtime: CliRuntime): Command {
       .description("Get an artist by ID.")
       .argument("<id>", "Discogs artist ID", positiveInteger),
   ).action(async (id: number, options: RecordOptions, command: Command) => {
+    const requestedFormat = outputFormat(options, command);
+    const fields = fieldsFor(command);
+    validateOutputFields(artistColumns, fields);
+    const format = await runtime.formatFor(
+      command,
+      requestedFormat,
+      options.json,
+    );
     const token = await runtime.tokens.resolve(
       tokenRequestFor(command, "token_optional"),
     );
     const result = await new DatabaseService(
       await runtime.clientFor(command, token?.token),
     ).getArtist(id);
-    renderRecord(
-      result,
-      await runtime.formatFor(command, outputFormat(options), options.json),
-      artistColumns,
-      io.stdout,
-      fieldsFor(command),
-    );
+    renderRecord(result, format, artistColumns, io.stdout, fields);
   });
 
   addListOptions(
@@ -65,31 +72,66 @@ export function createArtistCommand(io: CliIo, runtime: CliRuntime): Command {
       .command("releases")
       .description("List an artist's releases.")
       .argument("<id>", "Discogs artist ID", positiveInteger),
-  ).action(async (id: number, options: ListOptions, command: Command) => {
-    validateListOptions(options);
-    const token = await runtime.tokens.resolve(
-      tokenRequestFor(command, "token_optional"),
+  )
+    .addOption(
+      new Option("--sort <field>", "Sort releases by field").choices([
+        "year",
+        "title",
+        "format",
+      ]),
+    )
+    .addOption(
+      new Option("--sort-order <order>", "Sort order").choices(["asc", "desc"]),
+    )
+    .action(
+      async (
+        id: number,
+        options: ListOptions & {
+          sort?: ArtistReleasesParameters["sort"];
+          sortOrder?: "asc" | "desc";
+        },
+        command: Command,
+      ) => {
+        validateListOptions(options, command);
+        const fields = fieldsFor(command);
+        validateOutputFields(releaseColumns, fields);
+        const format = await runtime.formatFor(
+          command,
+          outputFormat(options, command),
+          options.json,
+        );
+        const token = await runtime.tokens.resolve(
+          tokenRequestFor(command, "token_optional"),
+        );
+        const service = new DatabaseService(
+          await runtime.clientFor(command, token?.token),
+        );
+        const shared: Omit<ArtistReleasesParameters, "page"> = {
+          per_page: options.perPage,
+          ...(options.sort === undefined ? {} : { sort: options.sort }),
+          ...(options.sortOrder === undefined
+            ? {}
+            : { sort_order: options.sortOrder }),
+        };
+        const values =
+          options.all === true
+            ? service.getArtistReleasesAll(id, shared)
+            : asAsync(
+                await service.getArtistReleases(id, {
+                  ...shared,
+                  ...(options.page === undefined ? {} : { page: options.page }),
+                }),
+              );
+        await renderRecords(
+          values,
+          format,
+          releaseColumns,
+          io.stdout,
+          fields,
+          options.limit,
+        );
+      },
     );
-    const service = new DatabaseService(
-      await runtime.clientFor(command, token?.token),
-    );
-    const values =
-      options.all === true
-        ? service.getArtistReleasesAll(id, { per_page: options.perPage })
-        : asAsync(
-            await service.getArtistReleases(id, {
-              per_page: options.perPage,
-              ...(options.page === undefined ? {} : { page: options.page }),
-            }),
-          );
-    await renderRecords(
-      values,
-      await runtime.formatFor(command, outputFormat(options), options.json),
-      releaseColumns,
-      io.stdout,
-      fieldsFor(command),
-    );
-  });
 
   return artist;
 }
